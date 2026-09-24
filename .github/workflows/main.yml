@@ -8,18 +8,24 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout Code
-        uses: actions/checkout@v3
+      - name: Checkout Repo
+        uses: actions/checkout@v4
 
-      - name: Compile Sketch with ESP32-C3
-        uses: armakuni/action-compile-arduino@v0.4.0
+      - name: Compile Sketch
+        uses: arduino/compile-sketches@v1
         with:
-          arduino-board-fqbn: esp32:esp32:esp32c3
-          platform-url: https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json
+          fqbn: esp32:esp32:esp32c3
+          cli-compile-flags: |
+            --export-binaries
+          platforms: |
+            - name: esp32:esp32
+              source-url: https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json
+          libraries: |
+            - name: ESP32-BLE-Gamepad
 
-      - name: Upload Binary Artifact
-        uses: actions/upload-artifact@v3
+      - name: Upload Binary Result
+        uses: actions/upload-artifact@v4
         with:
           name: firmware-esp32c3
-          path: build/*.bin
+          path: build/**/*.bin
           
