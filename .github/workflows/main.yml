@@ -1,0 +1,25 @@
+name: Build ESP32-C3 Firmware
+
+on:
+  push:
+    branches: [ "main" ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v3
+
+      - name: Compile Sketch with ESP32-C3
+        uses: armakuni/action-compile-arduino@v0.4.0
+        with:
+          arduino-board-fqbn: esp32:esp32:esp32c3
+          platform-url: https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json
+
+      - name: Upload Binary Artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: firmware-esp32c3
+          path: build/*.bin
+          
