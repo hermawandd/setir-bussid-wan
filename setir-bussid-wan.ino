@@ -1,4 +1,3 @@
-#define USE_NIMBLE // Gunakan NimBLE agar Bluetooth C3 ringan & stabil
 #include <BleKeyboard.h>
 
 BleKeyboard bleKeyboard("SETIR", "ESP32", 100);
