@@ -1,11 +1,11 @@
-#include <SkBleKeyboard.h>
+#define USE_NIMBLE // Aktifkan NimBLE bawaan T-vK agar BLE sangat ringan
+#include <BleKeyboard.h>
 
-// Inisialisasi sesuai contoh resmi library
-SkBleKeyboard keyboard("SETIR BUS V2", "ESP32-C3", 100);
+BleKeyboard bleKeyboard("SETIR BUS V2", "ESP32", 100);
 
-const int POT_PIN = 0;   // GPIO 0 untuk Potensio Setir
-const int GAS_PIN = 1;   // GPIO 1 untuk Pedal Gas
-const int BRAKE_PIN = 2; // GPIO 2 untuk Pedal Rem
+const int POT_PIN = 0;   // GPIO 0
+const int GAS_PIN = 1;   // GPIO 1
+const int BRAKE_PIN = 2; // GPIO 2
 
 float steerSmoothed = 2048.0;
 const float EMA_ALPHA = 0.15;
@@ -19,17 +19,12 @@ void setup() {
   pinMode(GAS_PIN, INPUT_PULLUP);
   pinMode(BRAKE_PIN, INPUT_PULLUP);
 
-  // Mulai layanan SkBleKeyboard
-  keyboard.begin();
+  bleKeyboard.begin();
 }
 
 void loop() {
-  // Wajib dipanggil terus menerus di loop sesuai contoh repo
-  keyboard.service();
-
-  // Cek koneksi pakai .connected() sesuai contoh repo
-  if (!keyboard.connected()) {
-    delay(10);
+  if (!bleKeyboard.isConnected()) {
+    delay(50);
     return;
   }
 
@@ -37,15 +32,15 @@ void loop() {
 
   // 1. PEDAL GAS ('w') & REM ('s')
   if (digitalRead(GAS_PIN) == LOW) {
-    keyboard.press('w');
+    bleKeyboard.press('w');
   } else {
-    keyboard.release('w');
+    bleKeyboard.release('w');
   }
 
   if (digitalRead(BRAKE_PIN) == LOW) {
-    keyboard.press('s');
+    bleKeyboard.press('s');
   } else {
-    keyboard.release('s');
+    bleKeyboard.release('s');
   }
 
   // 2. PEMBACAAN POTENSIO (1.5 Putaran Kiri - 1.5 Putaran Kanan)
@@ -59,8 +54,8 @@ void loop() {
   int absSteer = abs(steerSteering);
 
   if (absSteer < 5) { 
-    keyboard.release('a');
-    keyboard.release('d');
+    bleKeyboard.release('a');
+    bleKeyboard.release('d');
     steerKeyPressed = false;
   } 
   else {
@@ -70,18 +65,18 @@ void loop() {
     if ((currentMillis - lastSteerPulse) < onTime) {
       if (!steerKeyPressed) {
         if (steerSteering < 0) {
-          keyboard.press('a');
-          keyboard.release('d');
+          bleKeyboard.press('a');
+          bleKeyboard.release('d');
         } else {
-          keyboard.press('d');
-          keyboard.release('a');
+          bleKeyboard.press('d');
+          bleKeyboard.release('a');
         }
         steerKeyPressed = true;
       }
     } else if ((currentMillis - lastSteerPulse) < pulseCycle) {
       if (steerKeyPressed) {
-        keyboard.release('a');
-        keyboard.release('d');
+        bleKeyboard.release('a');
+        bleKeyboard.release('d');
         steerKeyPressed = false;
       }
     } else {
