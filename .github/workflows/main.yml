@@ -1,4 +1,4 @@
-name: Build ESP32 Firmware
+name: Build ESP32-C3 BLE Keyboard
 
 on:
   push:
@@ -15,35 +15,44 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Setup Python & Esptool
+      - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.x'
-      
+
       - name: Install Esptool
         run: pip install esptool
 
       - name: Setup Arduino CLI
         uses: arduino/setup-arduino-cli@v2
 
-      - name: Install ESP32 Core (v2.0.17)
+      - name: Install ESP32 Core
         run: |
-          arduino-cli core update-index --additional-urls https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json
-          arduino-cli core install esp32:esp32@2.0.17 --additional-urls https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json
+          arduino-cli core update-index \
+            --additional-urls https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json
 
-      - name: Install NimBLE-Arduino v1.4.2
-        run: arduino-cli lib install "NimBLE-Arduino@1.4.2"
+          arduino-cli core install esp32:esp32@2.0.18 \
+            --additional-urls https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json
 
-      - name: Install ESP32 BLE Keyboard
+      - name: Install NimBLE-Arduino
+        run: |
+          arduino-cli lib install "NimBLE-Arduino@1.4.3"
+
+      - name: Install ESP32-C3 BLE Keyboard
         run: |
           mkdir -p /home/runner/Arduino/libraries
-          git clone https://github.com/T-vK/ESP32-BLE-Keyboard.git /home/runner/Arduino/libraries/ESP32-BLE-Keyboard
+          git clone https://github.com/pr4u4t/ESP32C3-BLE-Keyboard.git \
+            /home/runner/Arduino/libraries/ESP32C3-BLE-Keyboard
 
-      - name: Compile Sketch
+      - name: Compile ESP32-C3
         run: |
-          arduino-cli compile --fqbn esp32:esp32:esp32c3 --libraries /home/runner/Arduino/libraries --output-dir ./build setir-bussid-wan.ino
+          arduino-cli compile \
+            --fqbn esp32:esp32:esp32c3 \
+            --libraries /home/runner/Arduino/libraries \
+            --output-dir ./build \
+            setir-bussid-wan.ino
 
-      - name: Merge Binaries to One File (0x0)
+      - name: Merge Binaries
         run: |
           esptool.py --chip esp32c3 merge_bin \
             -o ./build/merged.bin \
@@ -53,8 +62,8 @@ jobs:
             0x8000 ./build/setir-bussid-wan.ino.partitions.bin \
             0x10000 ./build/setir-bussid-wan.ino.bin
 
-      - name: Upload Binary Artifact
+      - name: Upload Firmware
         uses: actions/upload-artifact@v4
         with:
-          name: esp32c3-firmware
+          name: esp32c3-ble-keyboard
           path: ./build/merged.bin
