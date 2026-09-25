@@ -1,4 +1,3 @@
-#define USE_NIMBLE // Aktifkan NimBLE bawaan T-vK agar BLE sangat ringan
 #include <BleKeyboard.h>
 
 BleKeyboard bleKeyboard("SETIR BUS V2", "ESP32", 100);
