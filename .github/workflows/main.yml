@@ -36,8 +36,10 @@ jobs:
 
       - name: Install SkBleKeyboard Library
         run: |
-          mkdir -p ~/Arduino/libraries
-          git clone https://github.com/Shubhjaiswal408/SkBleKeyboard.git ~/Arduino/libraries/BleKeyboard
+          mkdir -p ~/Arduino/libraries/BleKeyboard
+          git clone https://github.com/Shubhjaiswal408/SkBleKeyboard.git temp_ble
+          cp -r temp_ble/src/* ~/Arduino/libraries/BleKeyboard/
+          rm -rf temp_ble
 
       - name: Compile Sketch
         run: |
@@ -58,4 +60,3 @@ jobs:
         with:
           name: SETIR_BLE
           path: ./build/merged.bin
-          
