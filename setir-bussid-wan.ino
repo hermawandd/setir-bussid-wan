@@ -1,8 +1,7 @@
-#define USE_NIMBLE
 #include <BleKeyboard.h>
 
-// Gunakan nama baru "SETIR BUS V3" untuk memastikan cache lama terhapus
-BleKeyboard bleKeyboard("SETIR BUS V3", "ESP32", 100);
+// Gunakan nama pendek "SETIR" agar paket BLE ringan & cepat di-respond MIUI
+BleKeyboard bleKeyboard("SETIR", "ESP32", 100);
 
 const int GAS_PIN = 1;   // GPIO 1 (Pedal Gas)
 const int BRAKE_PIN = 2; // GPIO 2 (Pedal Rem)
@@ -13,6 +12,7 @@ void setup() {
   pinMode(GAS_PIN, INPUT_PULLUP);
   pinMode(BRAKE_PIN, INPUT_PULLUP);
 
+  // Inisialisasi Bluetooth BLE
   bleKeyboard.begin();
 }
 
