@@ -1,7 +1,7 @@
 #define USE_NIMBLE
 #include <BleKeyboard.h>
 
-// Buat nama baru agar HP mengira ini perangkat baru
+// Gunakan nama baru "SETIR BUS V3" untuk memastikan cache lama terhapus
 BleKeyboard bleKeyboard("SETIR BUS V3", "ESP32", 100);
 
 const int GAS_PIN = 1;   // GPIO 1 (Pedal Gas)
