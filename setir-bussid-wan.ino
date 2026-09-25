@@ -1,19 +1,17 @@
 #include <BleKeyboard.h>
-#include <esp_bt_main.h>
-#include <esp_bt_device.h>
 
-BleKeyboard bleKeyboard("SETIRV2", "ESP32", 100);
+// Inisialisasi BleKeyboard berbasis NimBLE
+BleKeyboard bleKeyboard("SETIR BUS V2", "ESP32-C3", 100);
 
-const int POT_PIN = 0;   // GPIO 0
-const int GAS_PIN = 1;   // GPIO 1
-const int BRAKE_PIN = 2; // GPIO 2
+const int POT_PIN = 0;   // GPIO 0 untuk Potensio
+const int GAS_PIN = 1;   // GPIO 1 untuk Pedal Gas
+const int BRAKE_PIN = 2; // GPIO 2 untuk Pedal Rem
 
 float steerSmoothed = 2048.0;
 const float EMA_ALPHA = 0.15;
 
 unsigned long lastSteerPulse = 0;
 bool steerKeyPressed = false;
-bool isConnectedPrevious = false;
 
 void setup() {
   Serial.begin(115200);
@@ -21,29 +19,13 @@ void setup() {
   pinMode(GAS_PIN, INPUT_PULLUP);
   pinMode(BRAKE_PIN, INPUT_PULLUP);
 
-  // Inisialisasi BLE Keyboard
   bleKeyboard.begin();
-  
-  // Beri jeda stabilisasi stack Bluetooth ESP32-C3
-  delay(1000);
 }
 
 void loop() {
-  bool currentConnected = bleKeyboard.isConnected();
-
-  // Jika koneksi terputus / gagal menyambung, paksakan restart Advertising
-  if (!currentConnected) {
-    if (isConnectedPrevious) {
-      isConnectedPrevious = false;
-      delay(500);
-    }
+  if (!bleKeyboard.isConnected()) {
     delay(50);
-    return; // Tunggu sampai status terhubung
-  }
-
-  // Jika baru saja terhubung
-  if (!isConnectedPrevious && currentConnected) {
-    isConnectedPrevious = true;
+    return;
   }
 
   unsigned long currentMillis = millis();
