@@ -1,16 +1,19 @@
 #include <BleKeyboard.h>
+#include <esp_bt_main.h>
+#include <esp_bt_device.h>
 
-BleKeyboard bleKeyboard("SETIR", "ESP32", 100);
+BleKeyboard bleKeyboard("SETIRV2", "ESP32", 100);
 
 const int POT_PIN = 0;   // GPIO 0
 const int GAS_PIN = 1;   // GPIO 1
 const int BRAKE_PIN = 2; // GPIO 2
 
 float steerSmoothed = 2048.0;
-const float EMA_ALPHA = 0.15; // Filter perhalus gerak
+const float EMA_ALPHA = 0.15;
 
 unsigned long lastSteerPulse = 0;
 bool steerKeyPressed = false;
+bool isConnectedPrevious = false;
 
 void setup() {
   Serial.begin(115200);
@@ -18,13 +21,29 @@ void setup() {
   pinMode(GAS_PIN, INPUT_PULLUP);
   pinMode(BRAKE_PIN, INPUT_PULLUP);
 
+  // Inisialisasi BLE Keyboard
   bleKeyboard.begin();
+  
+  // Beri jeda stabilisasi stack Bluetooth ESP32-C3
+  delay(1000);
 }
 
 void loop() {
-  if (!bleKeyboard.isConnected()) {
-    delay(100);
-    return;
+  bool currentConnected = bleKeyboard.isConnected();
+
+  // Jika koneksi terputus / gagal menyambung, paksakan restart Advertising
+  if (!currentConnected) {
+    if (isConnectedPrevious) {
+      isConnectedPrevious = false;
+      delay(500);
+    }
+    delay(50);
+    return; // Tunggu sampai status terhubung
+  }
+
+  // Jika baru saja terhubung
+  if (!isConnectedPrevious && currentConnected) {
+    isConnectedPrevious = true;
   }
 
   unsigned long currentMillis = millis();
@@ -42,37 +61,32 @@ void loop() {
     bleKeyboard.release('s');
   }
 
-  // 2. PEMBACAAN POTENSIO & PEMBATASAN 1.5 PUTARAN KIRI/KANAN
+  // 2. PEMBACAAN POTENSIO (1.5 Putaran Kiri - 1.5 Putaran Kanan)
   int rawValue = analogRead(POT_PIN);
   steerSmoothed = (EMA_ALPHA * rawValue) + ((1.0 - EMA_ALPHA) * steerSmoothed);
 
-  // BATAS ADC: Mengambil 1.5 putaran kiri (-1.5) sampai 1.5 putaran kanan (+1.5) -> Total 3 Putaran Aktif
-  // Nilai 650 = 1.5 putaran kiri, Nilai 3350 = 1.5 putaran kanan
   int potLimited = constrain((int)steerSmoothed, 650, 3350);
-
-  // Map 3 putaran aktif tersebut ke range steering -100 (Kiri) s/d +100 (Kanan)
   int steerSteering = map(potLimited, 650, 3350, -100, 100);
 
   // 3. LOGIKA PULSA PWM SETIR ('a' & 'd')
   int absSteer = abs(steerSteering);
 
   if (absSteer < 5) { 
-    // Deadzone Tengah (Setir Lurus 0 Derajat)
     bleKeyboard.release('a');
     bleKeyboard.release('d');
     steerKeyPressed = false;
   } 
   else {
-    int pulseCycle = 40; // Total periode pulsa (40ms)
+    int pulseCycle = 40; 
     int onTime = map(absSteer, 5, 100, 5, pulseCycle);
 
     if ((currentMillis - lastSteerPulse) < onTime) {
       if (!steerKeyPressed) {
         if (steerSteering < 0) {
-          bleKeyboard.press('a');  // Belok Kiri
+          bleKeyboard.press('a');
           bleKeyboard.release('d');
         } else {
-          bleKeyboard.press('d');  // Belok Kanan
+          bleKeyboard.press('d');
           bleKeyboard.release('a');
         }
         steerKeyPressed = true;
