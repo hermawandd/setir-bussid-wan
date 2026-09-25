@@ -1,18 +1,14 @@
 #include <BleKeyboard.h>
 
-// Inisialisasi Nama Bluetooth Keyboard
 BleKeyboard bleKeyboard("SETIR BUS V2", "ESP32", 100);
 
-// Pin ESP32-C3
-const int POT_PIN = 0;   // GPIO 0 untuk Potensio Setir
-const int GAS_PIN = 1;   // GPIO 1 untuk Pedal Gas (INPUT_PULLUP)
-const int BRAKE_PIN = 2; // GPIO 2 untuk Pedal Rem (INPUT_PULLUP)
+const int POT_PIN = 0;   // GPIO 0
+const int GAS_PIN = 1;   // GPIO 1
+const int BRAKE_PIN = 2; // GPIO 2
 
-// Filter & Kalibrasi Potensio
 float steerSmoothed = 2048.0;
-const float EMA_ALPHA = 0.15; // Filter perhalus gerak setir
+const float EMA_ALPHA = 0.15; // Filter perhalus gerak
 
-// Timer PWM Pulse untuk Setir Presisi
 unsigned long lastSteerPulse = 0;
 bool steerKeyPressed = false;
 
@@ -22,79 +18,69 @@ void setup() {
   pinMode(GAS_PIN, INPUT_PULLUP);
   pinMode(BRAKE_PIN, INPUT_PULLUP);
 
-  // Inisialisasi Bluetooth Keyboard
   bleKeyboard.begin();
-  Serial.println("Bluetooth Keyboard Siap Dipairing...");
 }
 
 void loop() {
   if (!bleKeyboard.isConnected()) {
-    delay(50);
+    delay(100);
     return;
   }
 
   unsigned long currentMillis = millis();
 
-  // -------------------------------------------------------------
-  // 1. PEMBACAAN PEDAL GAS & REM (DIGITAL INPUT)
-  // -------------------------------------------------------------
-  // Pedal Gas -> Kirim 'W' atau Panah Atas
+  // 1. PEDAL GAS ('w') & REM ('s')
   if (digitalRead(GAS_PIN) == LOW) {
-    bleKeyboard.press(KEY_UP_ARROW);
+    bleKeyboard.press('w');
   } else {
-    bleKeyboard.release(KEY_UP_ARROW);
+    bleKeyboard.release('w');
   }
 
-  // Pedal Rem -> Kirim 'S' atau Panah Bawah
   if (digitalRead(BRAKE_PIN) == LOW) {
-    bleKeyboard.press(KEY_DOWN_ARROW);
+    bleKeyboard.press('s');
   } else {
-    bleKeyboard.release(KEY_DOWN_ARROW);
+    bleKeyboard.release('s');
   }
 
-  // -------------------------------------------------------------
-  // 2. PEMBACAAN POTENSIO & KALIBRASI
-  // -------------------------------------------------------------
+  // 2. PEMBACAAN POTENSIO & PEMBATASAN 1.5 PUTARAN KIRI/KANAN
   int rawValue = analogRead(POT_PIN);
   steerSmoothed = (EMA_ALPHA * rawValue) + ((1.0 - EMA_ALPHA) * steerSmoothed);
 
-  // Nilai Tengah Lurus Ideal ~2048 (Range Potensio: 200 - 3800)
-  int potLimited = constrain((int)steerSmoothed, 200, 3800);
+  // BATAS ADC: Mengambil 1.5 putaran kiri (-1.5) sampai 1.5 putaran kanan (+1.5) -> Total 3 Putaran Aktif
+  // Nilai 650 = 1.5 putaran kiri, Nilai 3350 = 1.5 putaran kanan
+  int potLimited = constrain((int)steerSmoothed, 650, 3350);
 
-  // Map nilai ke range steering (-100 kencang kiri, 0 tengah, +100 kencang kanan)
-  int steerSteering = map(potLimited, 200, 3800, -100, 100);
+  // Map 3 putaran aktif tersebut ke range steering -100 (Kiri) s/d +100 (Kanan)
+  int steerSteering = map(potLimited, 650, 3350, -100, 100);
 
-  // -------------------------------------------------------------
-  // 3. LOGIKA PULSA (PWM) SETIR AGAR DITAHAN BERHENTI SESUAI SUDUT
-  // -------------------------------------------------------------
+  // 3. LOGIKA PULSA PWM SETIR ('a' & 'd')
   int absSteer = abs(steerSteering);
 
-  if (absSteer < 5) { // Deadzone Tengah (Setir Lurus)
-    bleKeyboard.release(KEY_LEFT_ARROW);
-    bleKeyboard.release(KEY_RIGHT_ARROW);
+  if (absSteer < 5) { 
+    // Deadzone Tengah (Setir Lurus 0 Derajat)
+    bleKeyboard.release('a');
+    bleKeyboard.release('d');
     steerKeyPressed = false;
   } 
   else {
-    // Menghitung rasio Waktu Tekan (ON) vs Waktu Lepas (OFF)
-    // Semakin miring setir, waktu ON semakin lama
     int pulseCycle = 40; // Total periode pulsa (40ms)
     int onTime = map(absSteer, 5, 100, 5, pulseCycle);
 
     if ((currentMillis - lastSteerPulse) < onTime) {
       if (!steerKeyPressed) {
         if (steerSteering < 0) {
-          bleKeyboard.press(KEY_LEFT_ARROW);
-          bleKeyboard.release(KEY_RIGHT_ARROW);
+          bleKeyboard.press('a');  // Belok Kiri
+          bleKeyboard.release('d');
         } else {
-          bleKeyboard.press(KEY_RIGHT_ARROW);
-          bleKeyboard.release(KEY_LEFT_ARROW);
+          bleKeyboard.press('d');  // Belok Kanan
+          bleKeyboard.release('a');
         }
         steerKeyPressed = true;
       }
     } else if ((currentMillis - lastSteerPulse) < pulseCycle) {
       if (steerKeyPressed) {
-        bleKeyboard.release(KEY_LEFT_ARROW);
-        bleKeyboard.release(KEY_RIGHT_ARROW);
+        bleKeyboard.release('a');
+        bleKeyboard.release('d');
         steerKeyPressed = false;
       }
     } else {
