@@ -31,7 +31,7 @@ jobs:
           arduino-cli core update-index \
             --additional-urls https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json
 
-          arduino-cli core install esp32:esp32@2.0.18 \
+          arduino-cli core install arduino:esp32@2.0.18-arduino.5 \
             --additional-urls https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json
 
       - name: Install NimBLE-Arduino
@@ -47,7 +47,7 @@ jobs:
       - name: Compile ESP32-C3
         run: |
           arduino-cli compile \
-            --fqbn esp32:esp32:esp32c3 \
+            --fqbn arduino:esp32:esp32c3 \
             --libraries /home/runner/Arduino/libraries \
             --output-dir ./build \
             setir-bussid-wan.ino
