@@ -11,7 +11,7 @@ jobs:
 
     steps:
     - name: Checkout Repository
-      uses: actions/checkout@v3
+      uses: actions/checkout@v4
 
     - name: Setup Arduino CLI
       uses: arduino/setup-arduino-cli@v1
@@ -26,7 +26,7 @@ jobs:
         arduino-cli compile --fqbn esp32:esp32:esp32c3 --output-dir ./build SETIR_BUS_V2.ino
 
     - name: Upload Binary Artifact
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: Firmware-SETIR-BUS-V2
         path: ./build/*.bin
