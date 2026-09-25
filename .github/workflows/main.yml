@@ -31,8 +31,8 @@ jobs:
           arduino-cli core update-index --additional-urls https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json
           arduino-cli core install esp32:esp32@2.0.14 --additional-urls https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json
 
-      - name: Install NimBLE-Arduino
-        run: arduino-cli lib install "NimBLE-Arduino"
+      - name: Install NimBLE-Arduino v1.4.3 (Locked Version)
+        run: arduino-cli lib install "NimBLE-Arduino@1.4.3"
 
       - name: Install ESP32 BLE Keyboard
         run: |
