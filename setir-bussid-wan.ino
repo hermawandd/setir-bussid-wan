@@ -55,16 +55,34 @@ class MyServerCallbacks : public BLEServerCallbacks {
   }
 };
 
+// =====================================================
+// DESCRIPTOR HID GAMEPAD STANDAR ANDROID
+// =====================================================
 const uint8_t reportMapGamepad[] = {
   0x05, 0x01,        // USAGE_PAGE (Generic Desktop)
   0x09, 0x05,        // USAGE (Gamepad)
   0xA1, 0x01,        // COLLECTION (Application)
+  0x85, 0x01,        //   REPORT_ID (1)
 
   // Sumbu Setir: X, Y (-127 s/d 127)
-  0x05, 0x01, 0x09, 0x30, 0x09, 0x31, 0x15, 0x81, 0x25, 0x7F, 0x75, 0x08, 0x95, 0x02, 0x81, 0x02,
+  0x05, 0x01,        //   USAGE_PAGE (Generic Desktop)
+  0x09, 0x30,        //   USAGE (X)
+  0x09, 0x31,        //   USAGE (Y)
+  0x15, 0x81,        //   LOGICAL_MINIMUM (-127)
+  0x25, 0x7F,        //   LOGICAL_MAXIMUM (127)
+  0x75, 0x08,        //   REPORT_SIZE (8)
+  0x95, 0x02,        //   REPORT_COUNT (2)
+  0x81, 0x02,        //   INPUT (Data,Var,Abs)
 
   // Analog Pedal: L2, R2 (0 s/d 255)
-  0x05, 0x02, 0x09, 0xC5, 0x09, 0xC4, 0x15, 0x00, 0x25, 0xFF, 0x75, 0x08, 0x95, 0x02, 0x81, 0x02,
+  0x05, 0x02,        //   USAGE_PAGE (Simulation Controls)
+  0x09, 0xC5,        //   USAGE (Brake)
+  0x09, 0xC4,        //   USAGE (Accelerator)
+  0x15, 0x00,        //   LOGICAL_MINIMUM (0)
+  0x26, 0xFF, 0x00,  //   LOGICAL_MAXIMUM (255)
+  0x75, 0x08,        //   REPORT_SIZE (8)
+  0x95, 0x02,        //   REPORT_COUNT (2)
+  0x81, 0x02,        //   INPUT (Data,Var,Abs)
 
   0xC0               // END_COLLECTION
 };
@@ -89,7 +107,7 @@ void setup() {
   BLEServer* pServer = BLEDevice::createServer();
   pServer->setCallbacks(new MyServerCallbacks());
   hid = new BLEHIDDevice(pServer);
-  inputGamepad = hid->inputReport(0);
+  inputGamepad = hid->inputReport(1); // Report ID 1
 
   hid->pnp(0x02, 0x05ac, 0x820a, 0x0210);
   hid->hidInfo(0x00, 0x01);
@@ -97,7 +115,7 @@ void setup() {
   hid->startServices();
 
   BLEAdvertising* pAdvertising = BLEDevice::getAdvertising();
-  pAdvertising->setAppearance(0x03C4);
+  pAdvertising->setAppearance(0x03C4); // Gamepad Appearance
   pAdvertising->addServiceUUID(hid->hidService()->getUUID());
   pAdvertising->start();
 }
