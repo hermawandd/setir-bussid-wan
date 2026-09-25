@@ -31,17 +31,17 @@ jobs:
           arduino-cli core update-index --additional-urls https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json
           arduino-cli core install esp32:esp32@2.0.17 --additional-urls https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json
 
-      - name: Install NimBLE-Arduino
-        run: arduino-cli lib install "NimBLE-Arduino"
+      - name: Install NimBLE-Arduino v1.4.2 (Stable Version)
+        run: arduino-cli lib install "NimBLE-Arduino@1.4.2"
 
-      - name: Install LemmingDev ESP32 BLE Keyboard
+      - name: Install ESP32 BLE Keyboard
         run: |
-          mkdir -p ~/Arduino/libraries
-          git clone https://github.com/lemmingDev/ESP32-BLE-Keyboard.git ~/Arduino/libraries/ESP32-BLE-Keyboard
+          cd /home/runner/Arduino/libraries/
+          git clone https://github.com/T-vK/ESP32-BLE-Keyboard.git
 
       - name: Compile Sketch
         run: |
-          arduino-cli compile --fqbn esp32:esp32:esp32c3 --libraries ~/Arduino/libraries --output-dir ./build setir-bussid-wan.ino
+          arduino-cli compile --fqbn esp32:esp32:esp32c3 --libraries /home/runner/Arduino/libraries --output-dir ./build setir-bussid-wan.ino
 
       - name: Merge Binaries to One File (0x0)
         run: |
