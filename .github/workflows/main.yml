@@ -34,13 +34,28 @@ jobs:
       - name: Install NimBLE-Arduino
         run: arduino-cli lib install "NimBLE-Arduino"
 
-      - name: Install SkBleKeyboard Library
+      - name: Setup SkBleKeyboard Library Correctly
         run: |
-          git clone https://github.com/Shubhjaiswal408/SkBleKeyboard.git ~/Arduino/libraries/SkBleKeyboard
+          mkdir -p ~/Arduino/libraries/SkBleKeyboard/src
+          git clone https://github.com/Shubhjaiswal408/SkBleKeyboard.git temp_ble
+          cp -r temp_ble/src/* ~/Arduino/libraries/SkBleKeyboard/src/
+          rm -rf temp_ble
+          cat << 'EOF' > ~/Arduino/libraries/SkBleKeyboard/library.properties
+          name=SkBleKeyboard
+          version=1.0.0
+          author=Shubhjaiswal408
+          maintainer=Shubhjaiswal408
+          sentence=BLE Keyboard for ESP32 using NimBLE
+          paragraph=BLE Keyboard implementation using NimBLE
+          category=Device Control
+          url=https://github.com/Shubhjaiswal408/SkBleKeyboard
+          architectures=*
+          includes=BleKeyboard.h
+          EOF
 
       - name: Compile Sketch
         run: |
-          arduino-cli compile --fqbn esp32:esp32:esp32c3 --libraries ~/Arduino/libraries --libraries ~/Arduino/libraries/SkBleKeyboard/src --output-dir ./build setir-bussid-wan.ino
+          arduino-cli compile --fqbn esp32:esp32:esp32c3 --libraries ~/Arduino/libraries --output-dir ./build setir-bussid-wan.ino
 
       - name: Merge Binaries to One File (0x0)
         run: |
