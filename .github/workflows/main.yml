@@ -25,12 +25,12 @@ jobs:
 
       - name: Install BLE Keyboard Library
         run: |
-          mkdir -p ~/.arduino15/libraries
-          git clone https://github.com/T-vK/ESP32-BLE-Keyboard.git ~/.arduino15/libraries/ESP32-BLE-Keyboard
+          mkdir -p ~/Arduino/libraries
+          git clone https://github.com/T-vK/ESP32-BLE-Keyboard.git ~/Arduino/libraries/ESP32-BLE-Keyboard
 
       - name: Compile Sketch
         run: |
-          arduino-cli compile --fqbn esp32:esp32:esp32c3 --output-dir ./build setir-bussid-wan.ino
+          arduino-cli compile --fqbn esp32:esp32:esp32c3 --libraries ~/Arduino/libraries --output-dir ./build setir-bussid-wan.ino
 
       - name: Upload Binary Artifact
         uses: actions/upload-artifact@v4
