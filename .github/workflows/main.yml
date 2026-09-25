@@ -31,6 +31,9 @@ jobs:
           arduino-cli core update-index --additional-urls https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json
           arduino-cli core install esp32:esp32@2.0.14 --additional-urls https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json
 
+      - name: Install NimBLE-Arduino (Dependensi Wajib Gamepad)
+        run: arduino-cli lib install "NimBLE-Arduino"
+
       - name: Install ESP32 BLE Gamepad Library
         run: |
           mkdir -p /home/runner/Arduino/libraries
@@ -55,4 +58,3 @@ jobs:
         with:
           name: esp32c3-firmware
           path: ./build/merged.bin
-          
