@@ -26,15 +26,18 @@ jobs:
       - name: Setup Arduino CLI
         uses: arduino/setup-arduino-cli@v2
 
-      - name: Install ESP32 Core (v2.0.14)
+      - name: Install ESP32 Core (v2.0.17)
         run: |
           arduino-cli core update-index --additional-urls https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json
-          arduino-cli core install esp32:esp32@2.0.14 --additional-urls https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json
+          arduino-cli core install esp32:esp32@2.0.17 --additional-urls https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json
 
-      - name: Install BLE Keyboard Library
+      - name: Install NimBLE-Arduino
+        run: arduino-cli lib install "NimBLE-Arduino"
+
+      - name: Install LemmingDev ESP32 BLE Keyboard
         run: |
           mkdir -p ~/Arduino/libraries
-          git clone https://github.com/T-vK/ESP32-BLE-Keyboard.git ~/Arduino/libraries/ESP32-BLE-Keyboard
+          git clone https://github.com/lemmingDev/ESP32-BLE-Keyboard.git ~/Arduino/libraries/ESP32-BLE-Keyboard
 
       - name: Compile Sketch
         run: |
