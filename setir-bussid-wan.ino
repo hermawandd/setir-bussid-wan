@@ -16,8 +16,8 @@ void setup() {
   // Inisialisasi NimBLE dengan mode Enkripsi Bonding
   NimBLEDevice::init("SETIR C3 FIX");
   
-  // Setel keamanan sesuai rekomendasi perbaikan (Bonding tanpa PIN IO)
-  NimBLEDevice::setSecurityAuth(true, false, false, BLE_SM_PAIR_AUTHREQ_BOND);
+  // Perbaikan sintaks NimBLE v1.4.3: Menggunakan BLE_SM_PAIR_AUTHREQ_BOND langsung
+  NimBLEDevice::setSecurityAuth(BLE_SM_PAIR_AUTHREQ_BOND);
   NimBLEDevice::setSecurityIOCap(BLE_HS_IO_NO_INPUT_OUTPUT);
 
   bleKeyboard.begin();
