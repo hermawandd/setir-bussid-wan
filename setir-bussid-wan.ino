@@ -1,16 +1,17 @@
-#include <BleKeyboard.h>
+#include <Arduino.h>
+#include <BleGamepad.h>
 
-// Nama Bluetooth baru murni tanpa NimBLE
-BleKeyboard bleKeyboard("SETIR C3 MURNI", "ESP32", 100);
+// Nama Bluetooth Gamepad untuk Tes
+BleGamepad bleGamepad("GAMEPAD C3 TEST", "ESP32", 100);
 
 void setup() {
   Serial.begin(115200);
   
-  // Langsung jalankan BLE Keyboard bawaan standar tanpa NimBLE
-  bleKeyboard.begin();
+  // Jalankan BLE Gamepad
+  bleGamepad.begin();
 }
 
 void loop() {
-  // Delay santai, fokus tes apakah nama 'SETIR C3 MURNI' mau "Terhubung"
+  // Hanya delay, fokus murni tes apakah nama 'GAMEPAD C3 TEST' mau "Terhubung"
   delay(1000);
 }
