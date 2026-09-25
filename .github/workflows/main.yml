@@ -36,14 +36,11 @@ jobs:
 
       - name: Install SkBleKeyboard Library
         run: |
-          mkdir -p ~/Arduino/libraries/BleKeyboard
-          git clone https://github.com/Shubhjaiswal408/SkBleKeyboard.git temp_ble
-          cp -r temp_ble/src/* ~/Arduino/libraries/BleKeyboard/
-          rm -rf temp_ble
+          git clone https://github.com/Shubhjaiswal408/SkBleKeyboard.git ~/Arduino/libraries/SkBleKeyboard
 
       - name: Compile Sketch
         run: |
-          arduino-cli compile --fqbn esp32:esp32:esp32c3 --libraries ~/Arduino/libraries --output-dir ./build setir-bussid-wan.ino
+          arduino-cli compile --fqbn esp32:esp32:esp32c3 --libraries ~/Arduino/libraries --libraries ~/Arduino/libraries/SkBleKeyboard/src --output-dir ./build setir-bussid-wan.ino
 
       - name: Merge Binaries to One File (0x0)
         run: |
@@ -58,5 +55,5 @@ jobs:
       - name: Upload Binary Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: SETIR_BLE
+          name: esp32c3-firmware
           path: ./build/merged.bin
