@@ -23,7 +23,7 @@ jobs:
 
     - name: Compile Sketch
       run: |
-        arduino-cli compile --fqbn esp32:esp32:esp32c3 --output-dir ./build SETIR_BUS_V2.ino
+        arduino-cli compile --fqbn esp32:esp32:esp32c3 --output-dir ./build setir-bussid-wan.ino
 
     - name: Upload Binary Artifact
       uses: actions/upload-artifact@v4
