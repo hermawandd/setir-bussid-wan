@@ -1,7 +1,8 @@
+#define USE_NIMBLE
 #include <BleKeyboard.h>
 
-// Nama Bluetooth dites pakai nama baru "TES SETIR"
-BleKeyboard bleKeyboard("TES SETIR", "ESP32", 100);
+// Buat nama baru agar HP mengira ini perangkat baru
+BleKeyboard bleKeyboard("SETIR BUS V3", "ESP32", 100);
 
 const int GAS_PIN = 1;   // GPIO 1 (Pedal Gas)
 const int BRAKE_PIN = 2; // GPIO 2 (Pedal Rem)
@@ -9,7 +10,6 @@ const int BRAKE_PIN = 2; // GPIO 2 (Pedal Rem)
 void setup() {
   Serial.begin(115200);
 
-  // Pakai INPUT_PULLUP agar saat saklar/pedal ditekan ke GND langsung kedeteksi
   pinMode(GAS_PIN, INPUT_PULLUP);
   pinMode(BRAKE_PIN, INPUT_PULLUP);
 
@@ -17,7 +17,6 @@ void setup() {
 }
 
 void loop() {
-  // Kalau belum terhubung ke HP, tunggu aja
   if (!bleKeyboard.isConnected()) {
     delay(50);
     return;
