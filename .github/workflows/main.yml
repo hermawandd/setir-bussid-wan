@@ -31,10 +31,13 @@ jobs:
           arduino-cli core update-index --additional-urls https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json
           arduino-cli core install esp32:esp32@2.0.17 --additional-urls https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json
 
-      - name: Install BLE Keyboard Library
+      - name: Install NimBLE-Arduino
+        run: arduino-cli lib install "NimBLE-Arduino"
+
+      - name: Install SkBleKeyboard Library
         run: |
           mkdir -p ~/Arduino/libraries
-          git clone https://github.com/T-vK/ESP32-BLE-Keyboard.git ~/Arduino/libraries/ESP32-BLE-Keyboard
+          git clone https://github.com/Shubhjaiswal408/SkBleKeyboard.git ~/Arduino/libraries/BleKeyboard
 
       - name: Compile Sketch
         run: |
@@ -53,5 +56,6 @@ jobs:
       - name: Upload Binary Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Setir_ble
+          name: SETIR_BLE
           path: ./build/merged.bin
+          
