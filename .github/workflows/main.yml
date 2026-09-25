@@ -34,12 +34,10 @@ jobs:
       - name: Install NimBLE-Arduino
         run: arduino-cli lib install "NimBLE-Arduino"
 
-      - name: Setup SkBleKeyboard Library
+      - name: Install T-vK BLE Keyboard Library
         run: |
-          mkdir -p ~/Arduino/libraries/SkBleKeyboard
-          git clone https://github.com/Shubhjaiswal408/SkBleKeyboard.git temp_ble
-          cp -r temp_ble/src/* ~/Arduino/libraries/SkBleKeyboard/
-          rm -rf temp_ble
+          mkdir -p ~/Arduino/libraries
+          git clone https://github.com/T-vK/ESP32-BLE-Keyboard.git ~/Arduino/libraries/ESP32-BLE-Keyboard
 
       - name: Compile Sketch
         run: |
