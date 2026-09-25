@@ -34,10 +34,10 @@ jobs:
       - name: Install NimBLE Library
         run: arduino-cli lib install "NimBLE-Arduino"
 
-      - name: Install BLE Keyboard Library
+      - name: Install ESP32 BLE Keyboard (NimBLE Version)
         run: |
           mkdir -p ~/Arduino/libraries
-          git clone https://github.com/T-vK/ESP32-BLE-Keyboard.git ~/Arduino/libraries/ESP32-BLE-Keyboard
+          git clone https://github.com/wakufactory/ESP32-BLE-Keyboard.git ~/Arduino/libraries/ESP32-BLE-Keyboard
 
       - name: Compile Sketch
         run: |
@@ -56,5 +56,5 @@ jobs:
       - name: Upload Binary Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: SETIR KEYBOARD
+          name: SETIR_BLE
           path: ./build/merged.bin
