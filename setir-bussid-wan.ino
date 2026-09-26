@@ -4,12 +4,9 @@
 #include <BLE2902.h>
 #include <BLEHIDDevice.h>
 
-// =====================================================
-// PINOUT ESP32-C3 SUPERMINI
-// =====================================================
-#define POT_STEER_PIN   0     // Potensio Setir (GPIO 0)
-#define R2_PIN          1     // Pedal Gas (GPIO 1 / Button 1)
-#define L2_PIN          2     // Pedal Rem (GPIO 2 / Button 2)
+#define POT_STEER_PIN   0
+#define R2_PIN          1     // Button 1 (Gas)
+#define L2_PIN          2     // Button 2 (Rem)
 
 // PIN TOMBOL TAMBAHAN (GPIO 3 s/d 10)
 #define BTN3_PIN        3     // Button 3
@@ -22,14 +19,9 @@
 #define BTN10_PIN       10    // Button 10
 
 #define DEVICE_NAME         "SETIR BUS V2"
-
-// Filter Halus Potensio
 float steerSmoothed = 2048.0;
 float alpha = 0.08; 
 
-// =====================================================
-// TABEL X & Y BUSSID (360 DEGREE - 80 INDEKS)
-// =====================================================
 const int8_t tableX[80] = {
    0, 10, 20, 30, 40, 50, 59, 67, 76, 83,
   90, 97,102,107,112,115,118,120,122,123,
@@ -87,7 +79,7 @@ int readADCFiltered(uint8_t pin) {
 }
 
 void setup() {
-  // Inisialisasi Seluruh Pin Tombol (GND Switch)
+  // Setup Semua Pin Tombol
   pinMode(R2_PIN, INPUT_PULLUP);
   pinMode(L2_PIN, INPUT_PULLUP);
   pinMode(BTN3_PIN, INPUT_PULLUP);
@@ -100,7 +92,6 @@ void setup() {
   pinMode(BTN10_PIN, INPUT_PULLUP);
 
   pinMode(POT_STEER_PIN, INPUT);
-
   analogReadResolution(12);
 
   BLEDevice::init(DEVICE_NAME);
@@ -129,19 +120,15 @@ void loop() {
   if (deviceConnected) {
     uint8_t bufferLaporan[8] = {0, 0, 0, 0, 0, 0, 0, 0};
 
-    // 1. BACA POTENSIO (TETAP SAMA SEPERTI KODE BOSS)
     int rawPot = readADCFiltered(POT_STEER_PIN);
     steerSmoothed = (alpha * rawPot) + ((1.0 - alpha) * steerSmoothed);
 
     int potLimited = constrain((int)steerSmoothed, 50, 4000);
-
-    // PEMETAAN 4 PUTARAN (TOTAL 320 INDEKS)
     int totalStep = map(potLimited, 50, 4000, 0, 319);
     int indexPoint = totalStep % 80;
 
-    // 2. PEMBACAAN 10 TOMBOL DIGITAL (16-BIT MASK)
+    // Pembacaan 10 Tombol Digital (Bitmask 16 Bit)
     uint16_t btnState = 0;
-
     if (digitalRead(R2_PIN) == LOW)   btnState |= (1 << 0); // Button 1 (Gas)
     if (digitalRead(L2_PIN) == LOW)   btnState |= (1 << 1); // Button 2 (Rem)
     if (digitalRead(BTN3_PIN) == LOW)  btnState |= (1 << 2); // Button 3
@@ -153,16 +140,14 @@ void loop() {
     if (digitalRead(BTN9_PIN) == LOW)  btnState |= (1 << 8); // Button 9
     if (digitalRead(BTN10_PIN) == LOW) btnState |= (1 << 9); // Button 10
 
-    bufferLaporan[0] = btnState & 0xFF;         // Byte 0: Button 1 s/d 8
-    bufferLaporan[1] = (btnState >> 8) & 0xFF;  // Byte 1: Button 9 s/d 10
-
-    // Hat switch released (Nilai 8 / Netral di 4-bit atas Byte 1)
+    bufferLaporan[0] = btnState & 0xFF;         // Byte 0: Button 1 - 8
+    bufferLaporan[1] = (btnState >> 8) & 0xFF;  // Byte 1: Button 9 - 10
+    
+    // Hat switch released (Nilai 8 di 4-bit atas Byte 1)
     bufferLaporan[1] |= (8 << 4);
 
-    // 3. SUMBU X & Y SETIR (DIBALIK AGAR ARAH PUTARAN BENAR)
-    bufferLaporan[2] = -tableX[indexPoint]; // Dibalik (-) supaya putar kiri = kiri
+    bufferLaporan[2] = -tableX[indexPoint]; 
     bufferLaporan[3] = tableY[indexPoint];
-
     bufferLaporan[4] = 0;
     bufferLaporan[5] = 0;
     bufferLaporan[6] = 0;
