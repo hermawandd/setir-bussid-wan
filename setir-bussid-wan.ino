@@ -4,7 +4,8 @@
 #include <BLE2902.h>
 #include <BLEHIDDevice.h>
 
-#define POT_STEER_PIN   0
+#define POT_STEER_PIN   0     // Khusus Potensio Setir
+
 #define R2_PIN          1     // Button 1 (Gas)
 #define L2_PIN          2     // Button 2 (Rem)
 
@@ -56,18 +57,19 @@ class MyServerCallbacks : public BLEServerCallbacks {
   }
 };
 
+// Report Map disesuaikan untuk 16 Button (2 Byte) + D-Pad + Sumbu X/Y + Z/Rz + L2/R2
 const uint8_t reportMapGamepad[] = {
   0x05, 0x01, 0x09, 0x05, 0xA1, 0x01,
-  // 16 Tombol Utama (Button 1 s/d Button 16)
+  // 16 Tombol (Bit Count: 16 -> memakan Byte 0 & Byte 1)
   0x05, 0x09, 0x19, 0x01, 0x29, 0x10, 0x15, 0x00, 0x25, 0x01, 0x75, 0x01, 0x95, 0x10, 0x81, 0x02,
-  // Hat Switch / D-Pad
+  // D-Pad / Hat Switch (4-bit data + 4-bit padding -> memakan Byte 2)
   0x05, 0x01, 0x09, 0x39, 0x15, 0x00, 0x25, 0x07, 0x35, 0x00, 0x46, 0x3B, 0x01, 0x65, 0x14, 0x75, 0x04, 0x95, 0x01, 0x81, 0x02,
   0x75, 0x04, 0x95, 0x01, 0x81, 0x03,
-  // Sumbu Setir: X, Y
+  // Sumbu Setir X & Y (Memakan Byte 3 & Byte 4)
   0x05, 0x01, 0x09, 0x30, 0x09, 0x31, 0x15, 0x81, 0x25, 0x7F, 0x75, 0x08, 0x95, 0x02, 0x81, 0x02,
-  // Sumbu Right Stick: Z, Rz
+  // Sumbu Right Stick Z & Rz (Memakan Byte 5 & Byte 6)
   0x05, 0x01, 0x09, 0x32, 0x09, 0x35, 0x15, 0x81, 0x25, 0x7F, 0x75, 0x08, 0x95, 0x02, 0x81, 0x02,
-  // Analog Triggers: L2, R2
+  // Analog Triggers (Memakan Byte 7 & Byte 8)
   0x05, 0x02, 0x09, 0xC5, 0x09, 0xC4, 0x15, 0x00, 0x25, 0xFF, 0x75, 0x08, 0x95, 0x02, 0x81, 0x02,
   0xC0
 };
@@ -79,7 +81,7 @@ int readADCFiltered(uint8_t pin) {
 }
 
 void setup() {
-  // Setup Semua Pin Tombol
+  // Inisialisasi Seluruh Pin Tombol Internal Pullup
   pinMode(R2_PIN, INPUT_PULLUP);
   pinMode(L2_PIN, INPUT_PULLUP);
   pinMode(BTN3_PIN, INPUT_PULLUP);
@@ -118,8 +120,10 @@ void setup() {
 
 void loop() {
   if (deviceConnected) {
-    uint8_t bufferLaporan[8] = {0, 0, 0, 0, 0, 0, 0, 0};
+    // Buffer disesuaikan jadi 9 Byte agar pas dengan Report Map
+    uint8_t bufferLaporan[9] = {0, 0, 0, 0, 0, 0, 0, 0, 0};
 
+    // 1. BACA POTENSIO (100% Menggunakan Rumus Joss Asli Boss)
     int rawPot = readADCFiltered(POT_STEER_PIN);
     steerSmoothed = (alpha * rawPot) + ((1.0 - alpha) * steerSmoothed);
 
@@ -127,7 +131,7 @@ void loop() {
     int totalStep = map(potLimited, 50, 4000, 0, 319);
     int indexPoint = totalStep % 80;
 
-    // Pembacaan 10 Tombol Digital (Bitmask 16 Bit)
+    // 2. BACA 10 TOMBOL DIGITAL
     uint16_t btnState = 0;
     if (digitalRead(R2_PIN) == LOW)   btnState |= (1 << 0); // Button 1 (Gas)
     if (digitalRead(L2_PIN) == LOW)   btnState |= (1 << 1); // Button 2 (Rem)
@@ -140,18 +144,23 @@ void loop() {
     if (digitalRead(BTN9_PIN) == LOW)  btnState |= (1 << 8); // Button 9
     if (digitalRead(BTN10_PIN) == LOW) btnState |= (1 << 9); // Button 10
 
-    bufferLaporan[0] = btnState & 0xFF;         // Byte 0: Button 1 - 8
-    bufferLaporan[1] = (btnState >> 8) & 0xFF;  // Byte 1: Button 9 - 10
+    // Byte 0: Button 1 s/d 8
+    bufferLaporan[0] = btnState & 0xFF;         
+    // Byte 1: Button 9 & 10
+    bufferLaporan[1] = (btnState >> 8) & 0xFF;  
     
-    // Hat switch released (Nilai 8 di 4-bit atas Byte 1)
-    bufferLaporan[1] |= (8 << 4);
+    // Byte 2: D-Pad / Hat Switch Neutral (8)
+    bufferLaporan[2] = 8; 
 
-    bufferLaporan[2] = -tableX[indexPoint]; 
-    bufferLaporan[3] = tableY[indexPoint];
-    bufferLaporan[4] = 0;
+    // Byte 3 & 4: Sumbu Setir X & Y (Letaknya pas sesuai Descriptor baru)
+    bufferLaporan[3] = -tableX[indexPoint]; 
+    bufferLaporan[4] = tableY[indexPoint];
+
+    // Byte sisanya diisi 0
     bufferLaporan[5] = 0;
     bufferLaporan[6] = 0;
     bufferLaporan[7] = 0;
+    bufferLaporan[8] = 0;
 
     inputGamepad->setValue(bufferLaporan, sizeof(bufferLaporan));
     inputGamepad->notify();
