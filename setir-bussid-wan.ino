@@ -4,22 +4,19 @@
 #include <BLE2902.h>
 #include <BLEHIDDevice.h>
 
-// =====================================================
-// PINOUT ESP32-C3 SUPERMINI (POTENSIO)
-// =====================================================
-#define POT_STEER_PIN   0     // Potensio Setir (GPIO 0 / ADC1_CH0)
+#define POT_STEER_PIN   0     // Potensio Setir (GPIO 0)
 #define R2_PIN          1     // Pedal Gas (GPIO 1)
 #define L2_PIN          2     // Pedal Rem (GPIO 2)
 
 #define DEVICE_NAME         "SETIR BUS V2"
-#define DEVICE_MANUFACTURER "ESP32"
 
-// Filter Kehalusan Potensio (EMA Filter)
+// Filter Halus
 float steerSmoothed = 2048.0;
-float alpha = 0.05;
+float alpha = 0.08; 
 
 // =====================================================
 // TABEL X & Y BUSSID (360 DEGREE - 80 INDEKS)
+// Index 0 = ATAS (X:0, Y:-124) -> Posisi Setir Lurus
 // =====================================================
 const int8_t tableX[80] = {
    0, 10, 20, 30, 40, 50, 59, 67, 76, 83,
@@ -43,17 +40,12 @@ const int8_t tableY[80] = {
  -90,-97,-102,-107,-112,-115,-118,-120,-122,-123
 };
 
-// =====================================================
-// BLE HID & REPORT MAP
-// =====================================================
 BLEHIDDevice* hid;
 BLECharacteristic* inputGamepad;
 bool deviceConnected = false;
 
 class MyServerCallbacks : public BLEServerCallbacks {
-  void onConnect(BLEServer* pServer) {
-    deviceConnected = true;
-  }
+  void onConnect(BLEServer* pServer) { deviceConnected = true; }
   void onDisconnect(BLEServer* pServer) {
     deviceConnected = false;
     pServer->getAdvertising()->start();
@@ -61,87 +53,29 @@ class MyServerCallbacks : public BLEServerCallbacks {
 };
 
 const uint8_t reportMapGamepad[] = {
-  0x05, 0x01,        // USAGE_PAGE (Generic Desktop)
-  0x09, 0x05,        // USAGE (Gamepad)
-  0xA1, 0x01,        // COLLECTION (Application)
-  
-  // 8 Tombol Utama
-  0x05, 0x09,        //     USAGE_PAGE (Button)
-  0x19, 0x01,        //     USAGE_MINIMUM (Button 1)
-  0x29, 0x08,        //     USAGE_MAXIMUM (Button 8)
-  0x15, 0x00,        //     LOGICAL_MINIMUM (0)
-  0x25, 0x01,        //     LOGICAL_MAXIMUM (1)
-  0x75, 0x01,        //     REPORT_SIZE (1)
-  0x95, 0x08,        //     REPORT_COUNT (8)
-  0x81, 0x02,        //     INPUT (Data,Var,Abs)
-
-  // Hat Switch / D-Pad (4-bit)
-  0x05, 0x01,        //     USAGE_PAGE (Generic Desktop)
-  0x09, 0x39,        //     USAGE (Hat switch)
-  0x15, 0x00,        //     LOGICAL_MINIMUM (0)
-  0x25, 0x07,        //     LOGICAL_MAXIMUM (7)
-  0x35, 0x00,        //     PHYSICAL_MINIMUM (0)
-  0x46, 0x3B, 0x01,  //     PHYSICAL_MAXIMUM (315)
-  0x65, 0x14,        //     UNIT (English Rotation: Angular Pos)
-  0x75, 0x04,        //     REPORT_SIZE (4)
-  0x95, 0x01,        //     REPORT_COUNT (1)
-  0x81, 0x02,        //     INPUT (Data,Var,Abs)
-
-  // Padding 4-bit
-  0x75, 0x04,        //     REPORT_SIZE (4)
-  0x95, 0x01,        //     REPORT_COUNT (1)
-  0x81, 0x03,        //     INPUT (Cnst,Var,Abs)
-
-  // Sumbu Setir: X, Y (-127 s/d 127)
-  0x05, 0x01,        //     USAGE_PAGE (Generic Desktop)
-  0x09, 0x30,        //     USAGE (X)
-  0x09, 0x31,        //     USAGE (Y)
-  0x15, 0x81,        //     LOGICAL_MINIMUM (-127)
-  0x25, 0x7F,        //     LOGICAL_MAXIMUM (127)
-  0x75, 0x08,        //     REPORT_SIZE (8)
-  0x95, 0x02,        //     REPORT_COUNT (2)
-  0x81, 0x02,        //     INPUT (Data,Var,Abs)
-
-  // Sumbu Joystick Kanan: Z, Rz
-  0x05, 0x01,        //     USAGE_PAGE (Generic Desktop)
-  0x09, 0x32,        //     USAGE (Z)
-  0x09, 0x35,        //     USAGE (Rz)
-  0x15, 0x81,        //     LOGICAL_MINIMUM (-127)
-  0x25, 0x7F,        //     LOGICAL_MAXIMUM (127)
-  0x75, 0x08,        //     REPORT_SIZE (8)
-  0x95, 0x02,        //     REPORT_COUNT (2)
-  0x81, 0x02,        //     INPUT (Data,Var,Abs)
-
-  // Analog Pedal: L2, R2 (0 s/d 255)
-  0x05, 0x02,        //     USAGE_PAGE (Simulation Controls)
-  0x09, 0xC5,        //     USAGE (Brake)
-  0x09, 0xC4,        //     USAGE (Accelerator)
-  0x15, 0x00,        //     LOGICAL_MINIMUM (0)
-  0x25, 0xFF,        //     LOGICAL_MAXIMUM (255)
-  0x75, 0x08,        //     REPORT_SIZE (8)
-  0x95, 0x02,        //     REPORT_COUNT (2)
-  0x81, 0x02,        //     INPUT (Data,Var,Abs)
-  0xC0               // END_COLLECTION
+  0x05, 0x01, 0x09, 0x05, 0xA1, 0x01,
+  0x05, 0x09, 0x19, 0x01, 0x29, 0x08, 0x15, 0x00, 0x25, 0x01, 0x75, 0x01, 0x95, 0x08, 0x81, 0x02,
+  0x05, 0x01, 0x09, 0x39, 0x15, 0x00, 0x25, 0x07, 0x35, 0x00, 0x46, 0x3B, 0x01, 0x65, 0x14, 0x75, 0x04, 0x95, 0x01, 0x81, 0x02,
+  0x75, 0x04, 0x95, 0x01, 0x81, 0x03,
+  0x05, 0x01, 0x09, 0x30, 0x09, 0x31, 0x15, 0x81, 0x25, 0x7F, 0x75, 0x08, 0x95, 0x02, 0x81, 0x02,
+  0x05, 0x01, 0x09, 0x32, 0x09, 0x35, 0x15, 0x81, 0x25, 0x7F, 0x75, 0x08, 0x95, 0x02, 0x81, 0x02,
+  0x05, 0x02, 0x09, 0xC5, 0x09, 0xC4, 0x15, 0x00, 0x25, 0xFF, 0x75, 0x08, 0x95, 0x02, 0x81, 0x02,
+  0xC0
 };
 
 int readADCFiltered(uint8_t pin) {
   long sum = 0;
-  for (int i = 0; i < 15; i++) {
-    sum += analogRead(pin);
-  }
-  return sum / 15;
+  for (int i = 0; i < 20; i++) sum += analogRead(pin);
+  return sum / 20;
 }
 
 void setup() {
-  Serial.begin(115200);
-
   pinMode(R2_PIN, INPUT_PULLUP);
   pinMode(L2_PIN, INPUT_PULLUP);
   pinMode(POT_STEER_PIN, INPUT);
 
   analogReadResolution(12);
 
-  // BLE INIT (Menggunakan format bonding seperti kodingan teman)
   BLEDevice::init(DEVICE_NAME);
   BLESecurity* pSecurity = new BLESecurity();
   pSecurity->setAuthenticationMode(ESP_LE_AUTH_BOND);
@@ -168,33 +102,33 @@ void loop() {
   if (deviceConnected) {
     uint8_t bufferLaporan[8] = {0, 0, 0, 0, 0, 0, 0, 0};
 
-    // 1. BACA POTENSIO (Tegangan Analog ESP32-C3)
+    // 1. BACA POTENSIO
     int rawPot = readADCFiltered(POT_STEER_PIN);
     steerSmoothed = (alpha * rawPot) + ((1.0 - alpha) * steerSmoothed);
 
-    // Batasi rentang ADC potensio (misal 100 - 3900)
-    int potLimited = constrain((int)steerSmoothed, 100, 3900);
+    // Buka penuh rentang ADC potensio (misal 50 - 4000)
+    int potLimited = constrain((int)steerSmoothed, 50, 4000);
 
-    // 2. MAPPING NILAI POTENSIO KE 80 INDEKS TABEL
-    int indexPoint = map(potLimited, 100, 3900, 0, 79);
+    // 2. PEMETAAN 4 PUTARAN (TOTAL 320 INDEKS = 4 x 80 INDEKS TABEL)
+    // Mentok Kiri (0) <--- Lurus (160) ---> Mentok Kanan (320)
+    int totalStep = map(potLimited, 50, 4000, 0, 319);
 
-    // 3. SET PAKET HID (Sama persis struktur Byte-nya dengan teman Boss)
-    bufferLaporan[0] = 0; // Buttons (kosong)
-    bufferLaporan[1] = 8; // Hat switch released (8)
-    
-    // Byte 2 & 3 untuk Sumbu Setir X & Y
+    // Mengambil sisa bagi (modulus 80) agar koordinat berputar melingkar 4 kali
+    int indexPoint = totalStep % 80;
+
+    // 3. SET BUFFER HID
+    bufferLaporan[0] = 0; 
+    bufferLaporan[1] = 8; 
+
+    // Sumbu X & Y Melingkar
     bufferLaporan[2] = tableX[indexPoint];
     bufferLaporan[3] = tableY[indexPoint];
 
-    // Byte 4 & 5 Joystick Kanan (kosong)
     bufferLaporan[4] = 0;
     bufferLaporan[5] = 0;
+    bufferLaporan[6] = (digitalRead(L2_PIN) == LOW) ? 255 : 0; // Rem
+    bufferLaporan[7] = (digitalRead(R2_PIN) == LOW) ? 255 : 0; // Gas
 
-    // Byte 6 & 7 Pedal Rem (L2) & Gas (R2)
-    bufferLaporan[6] = (digitalRead(L2_PIN) == LOW) ? 255 : 0; // Brake
-    bufferLaporan[7] = (digitalRead(R2_PIN) == LOW) ? 255 : 0; // Accelerator
-
-    // KIRIM PAKET
     inputGamepad->setValue(bufferLaporan, sizeof(bufferLaporan));
     inputGamepad->notify();
   }
