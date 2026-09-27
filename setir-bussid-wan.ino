@@ -89,10 +89,33 @@ const uint8_t reportMapGamepad[] = {
   0xC0
 };
 
+// =========================================================================
+// FILTERING DUA LAPIS (MULTISAMPLE + STABILITAS BUNDAR) TAHAN NOISE
+// =========================================================================
 int readADCFiltered(uint8_t pin) {
   long sum = 0;
-  for (int i = 0; i < 20; i++) sum += analogRead(pin);
-  return sum / 20;
+  // Mengambil 15 sampel rapat untuk meredam ripple tegangan dari adaptor
+  for (int i = 0; i < 15; i++) {
+    sum += analogRead(pin);
+  }
+  return sum / 15;
+}
+
+// Logika Pembacaan 2 Tombol Per Pin (Skema 2 Resistor 1k Seri)
+uint8_t baca2Tombol(uint8_t pin) {
+  int adc = readADCFiltered(pin);
+
+  // Direct 3.3V -> Tombol Pertama dalam Pasangan (ADC Sangat Tinggi)
+  if (adc > 3400) {
+    return 1; 
+  }
+  // Pakai 2x Resistor 1k Seri (2k Ohm) -> Tombol Kedua dalam Pasangan
+  else if (adc >= 1300 && adc <= 2600) {
+    return 2; 
+  }
+
+  // Deadzone (Sinyal liar di bawah 1000 atau di rentang 2600-3400 diabaikan total)
+  return 0; 
 }
 
 void setup() {
@@ -137,7 +160,7 @@ void loop() {
   if (deviceConnected) {
     uint8_t bufferLaporan[9] = {0};
 
-    // 1. PEMBACAAN DAN FILTERING POTENSIO (SAMA SEPERTI ASLI)
+    // 1. PEMBACAAN DAN FILTERING POTENSIO SETIR
     int rawPot = readADCFiltered(POT_STEER_PIN);
     steerSmoothed = (alpha * rawPot) + ((1.0 - alpha) * steerSmoothed);
 
@@ -153,7 +176,7 @@ void loop() {
     outX_smoothed = (alphaOut * targetX) + ((1.0 - alphaOut) * outX_smoothed);
     outY_smoothed = (alphaOut * targetY) + ((1.0 - alphaOut) * outY_smoothed);
 
-    // 2. DETEKSI LINTASAN PEMICU (SAMA SEPERTI ASLI)
+    // 2. DETEKSI LINTASAN PEMICU (CENTER PULSE)
     int currentX = (int)outX_smoothed;
     bool isAtCenterX = (abs(currentX) <= 2); 
 
@@ -166,7 +189,7 @@ void loop() {
       hasLeftCenter = false; 
     }
 
-    // 3. PEMBACAAN TOTAL 11 TOMBOL DIGITAL
+    // 3. PEMBACAAN TOTAL 11 TOMBOL DIGITAL (DENGAN FILTER STABIL)
     uint16_t btnState = 0;
 
     // --- Gas & Rem (Jalur GND) ---
@@ -174,35 +197,35 @@ void loop() {
     if (digitalRead(L2_PIN) == LOW)   btnState |= (1 << 1); // Tombol 2
 
     // --- GPIO 3 (Tombol 3 & 4) ---
-    int valP1 = analogRead(BTN_PAIR1_PIN);
-    if (valP1 > 3000)                        btnState |= (1 << 2); // Tombol 3 (Direct 3.3V)
-    else if (valP1 > 1000 && valP1 <= 3000)  btnState |= (1 << 3); // Tombol 4 (Lewat Resistor 1k)
+    uint8_t p1 = baca2Tombol(BTN_PAIR1_PIN);
+    if (p1 == 1) btnState |= (1 << 2); // Tombol 3 (Direct 3.3V)
+    if (p1 == 2) btnState |= (1 << 3); // Tombol 4 (2x Resistor 1k Seri)
 
     // --- GPIO 4 (Tombol 5 & 6) ---
-    int valP2 = analogRead(BTN_PAIR2_PIN);
-    if (valP2 > 3000)                        btnState |= (1 << 4); // Tombol 5 (Direct 3.3V)
-    else if (valP2 > 1000 && valP2 <= 3000)  btnState |= (1 << 5); // Tombol 6 (Lewat Resistor 1k)
+    uint8_t p2 = baca2Tombol(BTN_PAIR2_PIN);
+    if (p2 == 1) btnState |= (1 << 4); // Tombol 5 (Direct 3.3V)
+    if (p2 == 2) btnState |= (1 << 5); // Tombol 6 (2x Resistor 1k Seri)
 
     // --- GPIO 5 (Tombol 7 & 8) ---
-    int valP3 = analogRead(BTN_PAIR3_PIN);
-    if (valP3 > 3000)                        btnState |= (1 << 6); // Tombol 7 (Direct 3.3V)
-    else if (valP3 > 1000 && valP3 <= 3000)  btnState |= (1 << 7); // Tombol 8 (Lewat Resistor 1k)
+    uint8_t p3 = baca2Tombol(BTN_PAIR3_PIN);
+    if (p3 == 1) btnState |= (1 << 6); // Tombol 7 (Direct 3.3V)
+    if (p3 == 2) btnState |= (1 << 7); // Tombol 8 (2x Resistor 1k Seri)
 
     // --- GPIO 6 (Tombol 9 & 10) ---
-    int valP4 = analogRead(BTN_PAIR4_PIN);
-    if (valP4 > 3000)                        btnState |= (1 << 8); // Tombol 9 (Direct 3.3V)
-    else if (valP4 > 1000 && valP4 <= 3000)  btnState |= (1 << 9); // Tombol 10 (Lewat Resistor 1k)
+    uint8_t p4 = baca2Tombol(BTN_PAIR4_PIN);
+    if (p4 == 1) btnState |= (1 << 8); // Tombol 9 (Direct 3.3V)
+    if (p4 == 2) btnState |= (1 << 9); // Tombol 10 (2x Resistor 1k Seri)
 
-    // --- GPIO 7 (Tombol 11 / Single Button) ---
-    int valSingle = analogRead(BTN_SINGLE_PIN);
-    if (valSingle > 2000)                    btnState |= (1 << 10); // Tombol 11 (Direct 3.3V)
+    // --- GPIO 7 (Tombol 11 / Single Button Direct 3.3V) ---
+    int valSingle = readADCFiltered(BTN_SINGLE_PIN);
+    if (valSingle > 2800) btnState |= (1 << 10); // Tombol 11
 
     // SUSUN BUFFER HID REPORT
     bufferLaporan[0] = btnState & 0xFF;         
     bufferLaporan[1] = (btnState >> 8) & 0xFF;  
     bufferLaporan[2] = 8; // Hat Switch Netral                      
 
-    // 4. PENANGANAN REFRESH PULSE (SAMA SEPERTI ASLI)
+    // 4. PENANGANAN REFRESH PULSE
     if (isPulsing) {
       bufferLaporan[3] = 0; 
       bufferLaporan[4] = 0; 
@@ -220,7 +243,7 @@ void loop() {
     bufferLaporan[7] = 0;
     bufferLaporan[8] = 0;
 
-    // 5. CONDITIONAL SENDING (SAMA SEPERTI ASLI)
+    // 5. CONDITIONAL SENDING
     bool dataChanged = false;
     for (int i = 0; i < 9; i++) {
       if (bufferLaporan[i] != lastBuffer[i]) {
