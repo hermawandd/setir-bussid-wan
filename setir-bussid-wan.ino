@@ -4,12 +4,12 @@
 #include <BLE2902.h>
 #include <BLEHIDDevice.h>
 
-#define POT_STEER_PIN   0     // Khusus Potensio Setir
+// PIN ASSIGNMENT ESP32-C3
+#define POT_STEER_PIN   0     // Potensio Setir
 
 #define R2_PIN          1     // Button 1 (Gas)
 #define L2_PIN          2     // Button 2 (Rem)
 
-// PIN TOMBOL TAMBAHAN (GPIO 3 s/d 10)
 #define BTN3_PIN        3     // Button 3
 #define BTN4_PIN        4     // Button 4
 #define BTN5_PIN        5     // Button 5
@@ -21,23 +21,23 @@
 
 #define DEVICE_NAME         "SETIR BUS V2"
 
-// Filter Halus Potensio
+// Filter Halus Potensio & Output
 float steerSmoothed = 2048.0;
-float alpha = 0.05;          // Filter noise ADC
+float alpha = 0.05;          // Filter ADC
 
-// Filter Output X dan Y
 float outX_smoothed = 0.0;
 float outY_smoothed = -124.0;
-float alphaOut = 0.25;       
+float alphaOut = 0.25;       // Filter X & Y
 
-// Variables untuk Trigger Center Refresh
+// Variabel Trigger Center Pulse
 bool hasLeftCenter = false;
 unsigned long centerPulseTimer = 0;
 bool isPulsing = false;
 
-// Menyimpan data laporan sebelumnya untuk Conditional Send
+// Buffer penampung data sebelumnya (Conditional Send)
 uint8_t lastBuffer[9] = {0};
 
+// TABEL LOOKUP KOORDINAT LINGKARAN (80 Titik)
 const int8_t tableX[80] = {
    0, 10, 20, 30, 40, 50, 59, 67, 76, 83,
   90, 97,102,107,112,115,118,120,122,123,
@@ -74,9 +74,9 @@ class MyServerCallbacks : public BLEServerCallbacks {
 
 const uint8_t reportMapGamepad[] = {
   0x05, 0x01, 0x09, 0x05, 0xA1, 0x01,
-  // 16 Button (Byte 0 & Byte 1)
+  // 16 Tombol Digital (Byte 0 & Byte 1)
   0x05, 0x09, 0x19, 0x01, 0x29, 0x10, 0x15, 0x00, 0x25, 0x01, 0x75, 0x01, 0x95, 0x10, 0x81, 0x02,
-  // D-Pad / Hat Switch Neutral (Byte 2)
+  // Hat Switch / D-Pad Netral (Byte 2)
   0x05, 0x01, 0x09, 0x39, 0x15, 0x00, 0x25, 0x07, 0x35, 0x00, 0x46, 0x3B, 0x01, 0x65, 0x14, 0x75, 0x04, 0x95, 0x01, 0x81, 0x02,
   0x75, 0x04, 0x95, 0x01, 0x81, 0x03,
   // Sumbu Setir X & Y (Byte 3 & Byte 4)
@@ -151,22 +151,22 @@ void loop() {
     outX_smoothed = (alphaOut * targetX) + ((1.0 - alphaOut) * outX_smoothed);
     outY_smoothed = (alphaOut * targetY) + ((1.0 - alphaOut) * outY_smoothed);
 
-    // 2. DETEKSI LINTASAN TITIK TENGAH (CENTER REFRESH TRIGGER)
-    // Toleransi titik tengah (index 0 / dekat index 0)
-    bool isAtCenter = (indexPoint <= 1 || indexPoint >= 79);
+    // 2. DETEKSI LINTASAN PEMICU (BERPATOKAN MURNI PADA X = 0)
+    int currentX = (int)outX_smoothed;
+    bool isAtCenterX = (abs(currentX) <= 2); // Rapat di X = 0
 
-    if (!isAtCenter) {
-      // Setir sedang diputar menjauhi titik tengah
+    if (!isAtCenterX) {
+      // Setir sedang belok (X bergerak menjauhi 0)
       hasLeftCenter = true;
     } 
-    else if (isAtCenter && hasLeftCenter && !isPulsing) {
-      // Setir baru saja kembali/melewati titik tengah!
+    else if (isAtCenterX && hasLeftCenter && !isPulsing) {
+      // PEMICU AKTIF: Setir menyentuh / melintasi X = 0!
       isPulsing = true;
       centerPulseTimer = millis();
-      hasLeftCenter = false; // Reset flag
+      hasLeftCenter = false; // Kunci pemicu agar 1x jalan saja
     }
 
-    // 3. PEMBACAAN TOMBOL DIGITAL (10 Tombol)
+    // 3. PEMBACAAN 10 TOMBOL DIGITAL
     uint16_t btnState = 0;
     if (digitalRead(R2_PIN) == LOW)   btnState |= (1 << 0);
     if (digitalRead(L2_PIN) == LOW)   btnState |= (1 << 1);
@@ -182,18 +182,19 @@ void loop() {
     // SUSUN BUFFER HID REPORT
     bufferLaporan[0] = btnState & 0xFF;         
     bufferLaporan[1] = (btnState >> 8) & 0xFF;  
-    bufferLaporan[2] = 8;                       
+    bufferLaporan[2] = 8; // Hat Switch Netral                      
 
-    // PENANGANAN REFRESH PULSE
+    // 4. PENANGANAN REFRESH PULSE (X DAN Y DIRESET KE 0 SEMENTARA)
     if (isPulsing) {
-      // Kirim sinyal Netral Mati (0,0) selama 20ms untuk membangunkan K2er
+      // Kirim X = 0 dan Y = 0 selama 25 ms
       bufferLaporan[3] = 0; 
-      bufferLaporan[4] = 0;
-      if (millis() - centerPulseTimer >= 20) {
-        isPulsing = false; // Pulsa 20ms selesai, kembali normal
+      bufferLaporan[4] = 0; 
+      
+      if (millis() - centerPulseTimer >= 25) {
+        isPulsing = false; // Setelah 25ms selesai, lepas ke data asli
       }
     } else {
-      // Kirim koordinat normal
+      // Kirim data koordinat asli
       bufferLaporan[3] = (int8_t)outX_smoothed;   
       bufferLaporan[4] = (int8_t)outY_smoothed;   
     }
@@ -203,7 +204,7 @@ void loop() {
     bufferLaporan[7] = 0;
     bufferLaporan[8] = 0;
 
-    // 4. CONDITIONAL SENDING
+    // 5. CONDITIONAL SENDING
     bool dataChanged = false;
     for (int i = 0; i < 9; i++) {
       if (bufferLaporan[i] != lastBuffer[i]) {
