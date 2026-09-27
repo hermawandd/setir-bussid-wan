@@ -4,28 +4,30 @@
 #include <BLE2902.h>
 #include <BLEHIDDevice.h>
 
-// PIN ASSIGNMENT ESP32-C3
-#define POT_STEER_PIN   0     // Potensio Setir (3.3V)
+// PIN ASSIGNMENT ESP32-C3 SUPERMINI (PIN AMAN BEBAS NGE-HANG)
+#define POT_STEER_PIN   0     // Potensio Setir (Analog 3.3V)
 
-#define R2_PIN          1     // Button 1 (Gas - Active LOW ke GND)
-#define L2_PIN          2     // Button 2 (Rem - Active LOW ke GND)
+// TOTAL 10 TOMBOL DIGITAL DIRECT GND (KEBAL NOISE & BEBAS STRAPPING)
+#define BTN_1_PIN       1     // Tombol 1  (Gas / R2)
+#define BTN_2_PIN       2     // Tombol 2  (Rem / L2)
+#define BTN_3_PIN       3     // Tombol 3  (Klakson)
+#define BTN_4_PIN       4     // Tombol 4  (Sein Kiri)
+#define BTN_5_PIN       5     // Tombol 5  (Sein Kanan)
+#define BTN_6_PIN       6     // Tombol 6  (Lampu Utama)
+#define BTN_7_PIN       7     // Tombol 7  (Wiper)
+#define BTN_8_PIN       10    // Tombol 8  (Handbrake)
+#define BTN_9_PIN       20    // Tombol 9  (Kamera)
+#define BTN_10_PIN      21    // Tombol 10 (Gigi / Transmisi)
 
-// 5 PIN UNTUK 9 TOMBOL TAMBAHAN (Active HIGH ke 3.3V)
-#define BTN_PAIR1_PIN   3     // Menampung Tombol 3 & Tombol 4
-#define BTN_PAIR2_PIN   4     // Menampung Tombol 5 & Tombol 6
-#define BTN_PAIR3_PIN   5     // Menampung Tombol 7 & Tombol 8
-#define BTN_PAIR4_PIN   6     // Menampung Tombol 9 & Tombol 10
-#define BTN_SINGLE_PIN  7     // Menampung Tombol 11 (Tombol Tunggal)
+#define DEVICE_NAME     "SETIR BUS V2"
 
-#define DEVICE_NAME         "SETIR BUS V2"
-
-// Filter Halus Potensio & Output
+// Filter Halus Potensio & Output (TETAP SAMA SEPERTI ASLI)
 float steerSmoothed = 2048.0;
-float alpha = 0.05;          // Filter ADC
+float alpha = 0.05;          
 
 float outX_smoothed = 0.0;
 float outY_smoothed = -124.0;
-float alphaOut = 0.25;       // Filter X & Y
+float alphaOut = 0.25;       
 
 // Variabel Trigger Center Pulse
 bool hasLeftCenter = false;
@@ -89,48 +91,27 @@ const uint8_t reportMapGamepad[] = {
   0xC0
 };
 
-// =========================================================================
-// FILTERING DUA LAPIS (MULTISAMPLE + STABILITAS BUNDAR) TAHAN NOISE
-// =========================================================================
+// Simple Filter Sampling khusus Potensio Setir
 int readADCFiltered(uint8_t pin) {
   long sum = 0;
-  // Mengambil 15 sampel rapat untuk meredam ripple tegangan dari adaptor
-  for (int i = 0; i < 15; i++) {
-    sum += analogRead(pin);
-  }
-  return sum / 15;
-}
-
-// Logika Pembacaan 2 Tombol Per Pin (Skema 2 Resistor 1k Seri)
-uint8_t baca2Tombol(uint8_t pin) {
-  int adc = readADCFiltered(pin);
-
-  // Direct 3.3V -> Tombol Pertama dalam Pasangan (ADC Sangat Tinggi)
-  if (adc > 3400) {
-    return 1; 
-  }
-  // Pakai 2x Resistor 1k Seri (2k Ohm) -> Tombol Kedua dalam Pasangan
-  else if (adc >= 1300 && adc <= 2600) {
-    return 2; 
-  }
-
-  // Deadzone (Sinyal liar di bawah 1000 atau di rentang 2600-3400 diabaikan total)
-  return 0; 
+  for (int i = 0; i < 20; i++) sum += analogRead(pin);
+  return sum / 20;
 }
 
 void setup() {
-  // Gas & Rem (Tetap Active LOW)
-  pinMode(R2_PIN, INPUT_PULLUP);
-  pinMode(L2_PIN, INPUT_PULLUP);
+  // SET SEMUA PIN TOMBOL KE INPUT_PULLUP (DIRECT GND)
+  pinMode(BTN_1_PIN, INPUT_PULLUP);
+  pinMode(BTN_2_PIN, INPUT_PULLUP);
+  pinMode(BTN_3_PIN, INPUT_PULLUP);
+  pinMode(BTN_4_PIN, INPUT_PULLUP);
+  pinMode(BTN_5_PIN, INPUT_PULLUP);
+  pinMode(BTN_6_PIN, INPUT_PULLUP);
+  pinMode(BTN_7_PIN, INPUT_PULLUP);
+  pinMode(BTN_8_PIN, INPUT_PULLUP);
+  pinMode(BTN_9_PIN, INPUT_PULLUP);
+  pinMode(BTN_10_PIN, INPUT_PULLUP);
 
-  // 5 Pin Tambahan Tombol Ganda (Active HIGH dengan Internal Pull-Down)
-  pinMode(BTN_PAIR1_PIN, INPUT_PULLDOWN);
-  pinMode(BTN_PAIR2_PIN, INPUT_PULLDOWN);
-  pinMode(BTN_PAIR3_PIN, INPUT_PULLDOWN);
-  pinMode(BTN_PAIR4_PIN, INPUT_PULLDOWN);
-  pinMode(BTN_SINGLE_PIN, INPUT_PULLDOWN);
-
-  // Setir Potensio
+  // Setir Potensio (3.3V Analog)
   pinMode(POT_STEER_PIN, INPUT);
   analogReadResolution(12);
 
@@ -160,7 +141,7 @@ void loop() {
   if (deviceConnected) {
     uint8_t bufferLaporan[9] = {0};
 
-    // 1. PEMBACAAN DAN FILTERING POTENSIO SETIR
+    // 1. PEMBACAAN POTENSIO SETIR
     int rawPot = readADCFiltered(POT_STEER_PIN);
     steerSmoothed = (alpha * rawPot) + ((1.0 - alpha) * steerSmoothed);
 
@@ -168,11 +149,9 @@ void loop() {
     int totalStep = map(potLimited, 50, 4000, 0, 319);
     int indexPoint = totalStep % 80;
 
-    // Target X dan Y dari Tabel
     float targetX = -tableX[indexPoint];
     float targetY = tableY[indexPoint];
 
-    // Smooth filter
     outX_smoothed = (alphaOut * targetX) + ((1.0 - alphaOut) * outX_smoothed);
     outY_smoothed = (alphaOut * targetY) + ((1.0 - alphaOut) * outY_smoothed);
 
@@ -189,36 +168,19 @@ void loop() {
       hasLeftCenter = false; 
     }
 
-    // 3. PEMBACAAN TOTAL 11 TOMBOL DIGITAL (DENGAN FILTER STABIL)
+    // 3. PEMBACAAN 10 TOMBOL DIGITAL DIRECT GND
     uint16_t btnState = 0;
 
-    // --- Gas & Rem (Jalur GND) ---
-    if (digitalRead(R2_PIN) == LOW)   btnState |= (1 << 0); // Tombol 1
-    if (digitalRead(L2_PIN) == LOW)   btnState |= (1 << 1); // Tombol 2
-
-    // --- GPIO 3 (Tombol 3 & 4) ---
-    uint8_t p1 = baca2Tombol(BTN_PAIR1_PIN);
-    if (p1 == 1) btnState |= (1 << 2); // Tombol 3 (Direct 3.3V)
-    if (p1 == 2) btnState |= (1 << 3); // Tombol 4 (2x Resistor 1k Seri)
-
-    // --- GPIO 4 (Tombol 5 & 6) ---
-    uint8_t p2 = baca2Tombol(BTN_PAIR2_PIN);
-    if (p2 == 1) btnState |= (1 << 4); // Tombol 5 (Direct 3.3V)
-    if (p2 == 2) btnState |= (1 << 5); // Tombol 6 (2x Resistor 1k Seri)
-
-    // --- GPIO 5 (Tombol 7 & 8) ---
-    uint8_t p3 = baca2Tombol(BTN_PAIR3_PIN);
-    if (p3 == 1) btnState |= (1 << 6); // Tombol 7 (Direct 3.3V)
-    if (p3 == 2) btnState |= (1 << 7); // Tombol 8 (2x Resistor 1k Seri)
-
-    // --- GPIO 6 (Tombol 9 & 10) ---
-    uint8_t p4 = baca2Tombol(BTN_PAIR4_PIN);
-    if (p4 == 1) btnState |= (1 << 8); // Tombol 9 (Direct 3.3V)
-    if (p4 == 2) btnState |= (1 << 9); // Tombol 10 (2x Resistor 1k Seri)
-
-    // --- GPIO 7 (Tombol 11 / Single Button Direct 3.3V) ---
-    int valSingle = readADCFiltered(BTN_SINGLE_PIN);
-    if (valSingle > 2800) btnState |= (1 << 10); // Tombol 11
+    if (digitalRead(BTN_1_PIN) == LOW)   btnState |= (1 << 0);  // Tombol 1
+    if (digitalRead(BTN_2_PIN) == LOW)   btnState |= (1 << 1);  // Tombol 2
+    if (digitalRead(BTN_3_PIN) == LOW)   btnState |= (1 << 2);  // Tombol 3
+    if (digitalRead(BTN_4_PIN) == LOW)   btnState |= (1 << 3);  // Tombol 4
+    if (digitalRead(BTN_5_PIN) == LOW)   btnState |= (1 << 4);  // Tombol 5
+    if (digitalRead(BTN_6_PIN) == LOW)   btnState |= (1 << 5);  // Tombol 6
+    if (digitalRead(BTN_7_PIN) == LOW)   btnState |= (1 << 6);  // Tombol 7
+    if (digitalRead(BTN_8_PIN) == LOW)   btnState |= (1 << 7);  // Tombol 8
+    if (digitalRead(BTN_9_PIN) == LOW)   btnState |= (1 << 8);  // Tombol 9
+    if (digitalRead(BTN_10_PIN) == LOW)  btnState |= (1 << 9);  // Tombol 10
 
     // SUSUN BUFFER HID REPORT
     bufferLaporan[0] = btnState & 0xFF;         
