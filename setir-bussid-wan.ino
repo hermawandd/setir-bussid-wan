@@ -23,12 +23,17 @@
 
 // Filter Halus Potensio
 float steerSmoothed = 2048.0;
-float alpha = 0.05;          // Lebih halus dari 0.08 untuk meredam noise ADC
+float alpha = 0.05;          // Filter noise ADC
 
-// Filter Output X dan Y (Bikin pergerakan lingkaran super smooth)
+// Filter Output X dan Y
 float outX_smoothed = 0.0;
 float outY_smoothed = -124.0;
-float alphaOut = 0.25;       // Smooth responsif untuk output X/Y
+float alphaOut = 0.25;       
+
+// Variables untuk Trigger Center Refresh
+bool hasLeftCenter = false;
+unsigned long centerPulseTimer = 0;
+bool isPulsing = false;
 
 // Menyimpan data laporan sebelumnya untuk Conditional Send
 uint8_t lastBuffer[9] = {0};
@@ -132,8 +137,6 @@ void loop() {
 
     // 1. PEMBACAAN DAN FILTERING POTENSIO
     int rawPot = readADCFiltered(POT_STEER_PIN);
-    
-    // Filter EMA Tahap 1 (Meredam Noise Potensio)
     steerSmoothed = (alpha * rawPot) + ((1.0 - alpha) * steerSmoothed);
 
     int potLimited = constrain((int)steerSmoothed, 50, 4000);
@@ -144,36 +147,63 @@ void loop() {
     float targetX = -tableX[indexPoint];
     float targetY = tableY[indexPoint];
 
-    // Filter EMA Tahap 2 (Memuluskan Pergerakan Transisi Indeks X/Y)
+    // Smooth filter
     outX_smoothed = (alphaOut * targetX) + ((1.0 - alphaOut) * outX_smoothed);
     outY_smoothed = (alphaOut * targetY) + ((1.0 - alphaOut) * outY_smoothed);
 
-    // 2. PEMBACAAN TOMBOL DIGITAL (10 Tombol)
+    // 2. DETEKSI LINTASAN TITIK TENGAH (CENTER REFRESH TRIGGER)
+    // Toleransi titik tengah (index 0 / dekat index 0)
+    bool isAtCenter = (indexPoint <= 1 || indexPoint >= 79);
+
+    if (!isAtCenter) {
+      // Setir sedang diputar menjauhi titik tengah
+      hasLeftCenter = true;
+    } 
+    else if (isAtCenter && hasLeftCenter && !isPulsing) {
+      // Setir baru saja kembali/melewati titik tengah!
+      isPulsing = true;
+      centerPulseTimer = millis();
+      hasLeftCenter = false; // Reset flag
+    }
+
+    // 3. PEMBACAAN TOMBOL DIGITAL (10 Tombol)
     uint16_t btnState = 0;
-    if (digitalRead(R2_PIN) == LOW)   btnState |= (1 << 0); // Button 1
-    if (digitalRead(L2_PIN) == LOW)   btnState |= (1 << 1); // Button 2
-    if (digitalRead(BTN3_PIN) == LOW)  btnState |= (1 << 2); // Button 3
-    if (digitalRead(BTN4_PIN) == LOW)  btnState |= (1 << 3); // Button 4
-    if (digitalRead(BTN5_PIN) == LOW)  btnState |= (1 << 4); // Button 5
-    if (digitalRead(BTN6_PIN) == LOW)  btnState |= (1 << 5); // Button 6
-    if (digitalRead(BTN7_PIN) == LOW)  btnState |= (1 << 6); // Button 7
-    if (digitalRead(BTN8_PIN) == LOW)  btnState |= (1 << 7); // Button 8
-    if (digitalRead(BTN9_PIN) == LOW)  btnState |= (1 << 8); // Button 9
-    if (digitalRead(BTN10_PIN) == LOW) btnState |= (1 << 9); // Button 10
+    if (digitalRead(R2_PIN) == LOW)   btnState |= (1 << 0);
+    if (digitalRead(L2_PIN) == LOW)   btnState |= (1 << 1);
+    if (digitalRead(BTN3_PIN) == LOW)  btnState |= (1 << 2);
+    if (digitalRead(BTN4_PIN) == LOW)  btnState |= (1 << 3);
+    if (digitalRead(BTN5_PIN) == LOW)  btnState |= (1 << 4);
+    if (digitalRead(BTN6_PIN) == LOW)  btnState |= (1 << 5);
+    if (digitalRead(BTN7_PIN) == LOW)  btnState |= (1 << 6);
+    if (digitalRead(BTN8_PIN) == LOW)  btnState |= (1 << 7);
+    if (digitalRead(BTN9_PIN) == LOW)  btnState |= (1 << 8);
+    if (digitalRead(BTN10_PIN) == LOW) btnState |= (1 << 9);
 
     // SUSUN BUFFER HID REPORT
-    bufferLaporan[0] = btnState & 0xFF;         // Button 1-8
-    bufferLaporan[1] = (btnState >> 8) & 0xFF;  // Button 9-10
-    bufferLaporan[2] = 8;                       // D-Pad Netral
-    bufferLaporan[3] = (int8_t)outX_smoothed;   // X Setir Smooth
-    bufferLaporan[4] = (int8_t)outY_smoothed;   // Y Setir Smooth
+    bufferLaporan[0] = btnState & 0xFF;         
+    bufferLaporan[1] = (btnState >> 8) & 0xFF;  
+    bufferLaporan[2] = 8;                       
+
+    // PENANGANAN REFRESH PULSE
+    if (isPulsing) {
+      // Kirim sinyal Netral Mati (0,0) selama 20ms untuk membangunkan K2er
+      bufferLaporan[3] = 0; 
+      bufferLaporan[4] = 0;
+      if (millis() - centerPulseTimer >= 20) {
+        isPulsing = false; // Pulsa 20ms selesai, kembali normal
+      }
+    } else {
+      // Kirim koordinat normal
+      bufferLaporan[3] = (int8_t)outX_smoothed;   
+      bufferLaporan[4] = (int8_t)outY_smoothed;   
+    }
+
     bufferLaporan[5] = 0;
     bufferLaporan[6] = 0;
     bufferLaporan[7] = 0;
     bufferLaporan[8] = 0;
 
-    // 3. CONDITIONAL SENDING (Kirim HANYA jika ada perubahan data)
-    // Mencegah K2er freeze / macep pas layar disentuh
+    // 4. CONDITIONAL SENDING
     bool dataChanged = false;
     for (int i = 0; i < 9; i++) {
       if (bufferLaporan[i] != lastBuffer[i]) {
@@ -185,7 +215,7 @@ void loop() {
     if (dataChanged) {
       inputGamepad->setValue(bufferLaporan, sizeof(bufferLaporan));
       inputGamepad->notify();
-      memcpy(lastBuffer, bufferLaporan, sizeof(bufferLaporan)); // Simpan data terakhir
+      memcpy(lastBuffer, bufferLaporan, sizeof(bufferLaporan));
     }
   }
   delay(10);
