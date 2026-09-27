@@ -5,19 +5,17 @@
 #include <BLEHIDDevice.h>
 
 // PIN ASSIGNMENT ESP32-C3
-#define POT_STEER_PIN   0     // Potensio Setir
+#define POT_STEER_PIN   0     // Potensio Setir (3.3V)
 
-#define R2_PIN          1     // Button 1 (Gas)
-#define L2_PIN          2     // Button 2 (Rem)
+#define R2_PIN          1     // Button 1 (Gas - Active LOW ke GND)
+#define L2_PIN          2     // Button 2 (Rem - Active LOW ke GND)
 
-#define BTN3_PIN        3     // Button 3
-#define BTN4_PIN        4     // Button 4
-#define BTN5_PIN        5     // Button 5
-#define BTN6_PIN        6     // Button 6
-#define BTN7_PIN        7     // Button 7
-#define BTN8_PIN        8     // Button 8
-#define BTN9_PIN        9     // Button 9
-#define BTN10_PIN       10    // Button 10
+// 5 PIN UNTUK 9 TOMBOL TAMBAHAN (Active HIGH ke 3.3V)
+#define BTN_PAIR1_PIN   3     // Menampung Tombol 3 & Tombol 4
+#define BTN_PAIR2_PIN   4     // Menampung Tombol 5 & Tombol 6
+#define BTN_PAIR3_PIN   5     // Menampung Tombol 7 & Tombol 8
+#define BTN_PAIR4_PIN   6     // Menampung Tombol 9 & Tombol 10
+#define BTN_SINGLE_PIN  7     // Menampung Tombol 11 (Tombol Tunggal)
 
 #define DEVICE_NAME         "SETIR BUS V2"
 
@@ -65,7 +63,10 @@ BLECharacteristic* inputGamepad;
 bool deviceConnected = false;
 
 class MyServerCallbacks : public BLEServerCallbacks {
-  void onConnect(BLEServer* pServer) { deviceConnected = true; }
+  void onConnect(BLEServer* pServer) { 
+    deviceConnected = true; 
+    memset(lastBuffer, 0xFF, sizeof(lastBuffer)); // Force send laporan pertama
+  }
   void onDisconnect(BLEServer* pServer) {
     deviceConnected = false;
     pServer->getAdvertising()->start();
@@ -95,17 +96,18 @@ int readADCFiltered(uint8_t pin) {
 }
 
 void setup() {
+  // Gas & Rem (Tetap Active LOW)
   pinMode(R2_PIN, INPUT_PULLUP);
   pinMode(L2_PIN, INPUT_PULLUP);
-  pinMode(BTN3_PIN, INPUT_PULLUP);
-  pinMode(BTN4_PIN, INPUT_PULLUP);
-  pinMode(BTN5_PIN, INPUT_PULLUP);
-  pinMode(BTN6_PIN, INPUT_PULLUP);
-  pinMode(BTN7_PIN, INPUT_PULLUP);
-  pinMode(BTN8_PIN, INPUT_PULLUP);
-  pinMode(BTN9_PIN, INPUT_PULLUP);
-  pinMode(BTN10_PIN, INPUT_PULLUP);
 
+  // 5 Pin Tambahan Tombol Ganda (Active HIGH dengan Internal Pull-Down)
+  pinMode(BTN_PAIR1_PIN, INPUT_PULLDOWN);
+  pinMode(BTN_PAIR2_PIN, INPUT_PULLDOWN);
+  pinMode(BTN_PAIR3_PIN, INPUT_PULLDOWN);
+  pinMode(BTN_PAIR4_PIN, INPUT_PULLDOWN);
+  pinMode(BTN_SINGLE_PIN, INPUT_PULLDOWN);
+
+  // Setir Potensio
   pinMode(POT_STEER_PIN, INPUT);
   analogReadResolution(12);
 
@@ -135,7 +137,7 @@ void loop() {
   if (deviceConnected) {
     uint8_t bufferLaporan[9] = {0};
 
-    // 1. PEMBACAAN DAN FILTERING POTENSIO
+    // 1. PEMBACAAN DAN FILTERING POTENSIO (SAMA SEPERTI ASLI)
     int rawPot = readADCFiltered(POT_STEER_PIN);
     steerSmoothed = (alpha * rawPot) + ((1.0 - alpha) * steerSmoothed);
 
@@ -151,50 +153,64 @@ void loop() {
     outX_smoothed = (alphaOut * targetX) + ((1.0 - alphaOut) * outX_smoothed);
     outY_smoothed = (alphaOut * targetY) + ((1.0 - alphaOut) * outY_smoothed);
 
-    // 2. DETEKSI LINTASAN PEMICU (BERPATOKAN MURNI PADA X = 0)
+    // 2. DETEKSI LINTASAN PEMICU (SAMA SEPERTI ASLI)
     int currentX = (int)outX_smoothed;
-    bool isAtCenterX = (abs(currentX) <= 2); // Rapat di X = 0
+    bool isAtCenterX = (abs(currentX) <= 2); 
 
     if (!isAtCenterX) {
-      // Setir sedang belok (X bergerak menjauhi 0)
       hasLeftCenter = true;
     } 
     else if (isAtCenterX && hasLeftCenter && !isPulsing) {
-      // PEMICU AKTIF: Setir menyentuh / melintasi X = 0!
       isPulsing = true;
       centerPulseTimer = millis();
-      hasLeftCenter = false; // Kunci pemicu agar 1x jalan saja
+      hasLeftCenter = false; 
     }
 
-    // 3. PEMBACAAN 10 TOMBOL DIGITAL
+    // 3. PEMBACAAN TOTAL 11 TOMBOL DIGITAL
     uint16_t btnState = 0;
-    if (digitalRead(R2_PIN) == LOW)   btnState |= (1 << 0);
-    if (digitalRead(L2_PIN) == LOW)   btnState |= (1 << 1);
-    if (digitalRead(BTN3_PIN) == LOW)  btnState |= (1 << 2);
-    if (digitalRead(BTN4_PIN) == LOW)  btnState |= (1 << 3);
-    if (digitalRead(BTN5_PIN) == LOW)  btnState |= (1 << 4);
-    if (digitalRead(BTN6_PIN) == LOW)  btnState |= (1 << 5);
-    if (digitalRead(BTN7_PIN) == LOW)  btnState |= (1 << 6);
-    if (digitalRead(BTN8_PIN) == LOW)  btnState |= (1 << 7);
-    if (digitalRead(BTN9_PIN) == LOW)  btnState |= (1 << 8);
-    if (digitalRead(BTN10_PIN) == LOW) btnState |= (1 << 9);
+
+    // --- Gas & Rem (Jalur GND) ---
+    if (digitalRead(R2_PIN) == LOW)   btnState |= (1 << 0); // Tombol 1
+    if (digitalRead(L2_PIN) == LOW)   btnState |= (1 << 1); // Tombol 2
+
+    // --- GPIO 3 (Tombol 3 & 4) ---
+    int valP1 = analogRead(BTN_PAIR1_PIN);
+    if (valP1 > 3000)                        btnState |= (1 << 2); // Tombol 3 (Direct 3.3V)
+    else if (valP1 > 1000 && valP1 <= 3000)  btnState |= (1 << 3); // Tombol 4 (Lewat Resistor 1k)
+
+    // --- GPIO 4 (Tombol 5 & 6) ---
+    int valP2 = analogRead(BTN_PAIR2_PIN);
+    if (valP2 > 3000)                        btnState |= (1 << 4); // Tombol 5 (Direct 3.3V)
+    else if (valP2 > 1000 && valP2 <= 3000)  btnState |= (1 << 5); // Tombol 6 (Lewat Resistor 1k)
+
+    // --- GPIO 5 (Tombol 7 & 8) ---
+    int valP3 = analogRead(BTN_PAIR3_PIN);
+    if (valP3 > 3000)                        btnState |= (1 << 6); // Tombol 7 (Direct 3.3V)
+    else if (valP3 > 1000 && valP3 <= 3000)  btnState |= (1 << 7); // Tombol 8 (Lewat Resistor 1k)
+
+    // --- GPIO 6 (Tombol 9 & 10) ---
+    int valP4 = analogRead(BTN_PAIR4_PIN);
+    if (valP4 > 3000)                        btnState |= (1 << 8); // Tombol 9 (Direct 3.3V)
+    else if (valP4 > 1000 && valP4 <= 3000)  btnState |= (1 << 9); // Tombol 10 (Lewat Resistor 1k)
+
+    // --- GPIO 7 (Tombol 11 / Single Button) ---
+    int valSingle = analogRead(BTN_SINGLE_PIN);
+    if (valSingle > 2000)                    btnState |= (1 << 10); // Tombol 11 (Direct 3.3V)
 
     // SUSUN BUFFER HID REPORT
     bufferLaporan[0] = btnState & 0xFF;         
     bufferLaporan[1] = (btnState >> 8) & 0xFF;  
     bufferLaporan[2] = 8; // Hat Switch Netral                      
 
-    // 4. PENANGANAN REFRESH PULSE (X DAN Y DIRESET KE 0 SEMENTARA)
+    // 4. PENANGANAN REFRESH PULSE (SAMA SEPERTI ASLI)
     if (isPulsing) {
-      // Kirim X = 0 dan Y = 0 selama 25 ms
       bufferLaporan[3] = 0; 
       bufferLaporan[4] = 0; 
       
       if (millis() - centerPulseTimer >= 25) {
-        isPulsing = false; // Setelah 25ms selesai, lepas ke data asli
+        isPulsing = false; 
       }
     } else {
-      // Kirim data koordinat asli
       bufferLaporan[3] = (int8_t)outX_smoothed;   
       bufferLaporan[4] = (int8_t)outY_smoothed;   
     }
@@ -204,7 +220,7 @@ void loop() {
     bufferLaporan[7] = 0;
     bufferLaporan[8] = 0;
 
-    // 5. CONDITIONAL SENDING
+    // 5. CONDITIONAL SENDING (SAMA SEPERTI ASLI)
     bool dataChanged = false;
     for (int i = 0; i < 9; i++) {
       if (bufferLaporan[i] != lastBuffer[i]) {
