@@ -4,10 +4,10 @@
 #include <BLE2902.h>
 #include <BLEHIDDevice.h>
 
-// PIN ASSIGNMENT ESP32-C3 SUPERMINI (PIN AMAN BEBAS NGE-HANG)
+// PIN ASSIGNMENT ESP32-C3 SUPERMINI
 #define POT_STEER_PIN   0     // Potensio Setir (Analog 3.3V)
 
-// TOTAL 10 TOMBOL DIGITAL DIRECT GND (KEBAL NOISE & BEBAS STRAPPING)
+// TOTAL 10 TOMBOL DIGITAL DIRECT GND
 #define BTN_1_PIN       1     // Tombol 1  (Gas / R2)
 #define BTN_2_PIN       2     // Tombol 2  (Rem / L2)
 #define BTN_3_PIN       3     // Tombol 3  (Klakson)
@@ -21,18 +21,18 @@
 
 #define DEVICE_NAME     "SETIR BUS V2"
 
-// Filter Halus & Super Responsif khusus Potensio B10K
-float steerSmoothed = 2048.0;
-float alpha = 0.20;          // Respon cepat untuk belok tipis/milimeter
+// Filter Halus & Smoothing (MURNI $100\%$ KEMBALI KE KODE AWAL KAMU)
+float steerSmoothed = 2520.0; // Inisialisasi awal ke titik tengah
+float alpha = 0.05;          
 
 float outX_smoothed = 0.0;
 float outY_smoothed = -124.0;
-float alphaOut = 0.40;       // Mengikuti gerakan jari secara instan
+float alphaOut = 0.25;       
 
 // Buffer penampung data sebelumnya (Conditional Send)
 uint8_t lastBuffer[9] = {0};
 
-// TABEL LOOKUP KOORDINAT LINGKARAN (80 Titik)
+// TABEL LOOKUP KOORDINAT LINGKARAN (80 Titik = 1 Putaran Lingkaran)
 const int8_t tableX[80] = {
    0, 10, 20, 30, 40, 50, 59, 67, 76, 83,
   90, 97,102,107,112,115,118,120,122,123,
@@ -86,11 +86,11 @@ const uint8_t reportMapGamepad[] = {
   0xC0
 };
 
-// Filter Sampling Ringan (5x saja) agar respons instan & hilangkan lag mikro
+// Filter Sampling 20x Murni Asli
 int readADCFiltered(uint8_t pin) {
   long sum = 0;
-  for (int i = 0; i < 5; i++) sum += analogRead(pin);
-  return sum / 5;
+  for (int i = 0; i < 20; i++) sum += analogRead(pin);
+  return sum / 20;
 }
 
 void setup() {
@@ -136,13 +136,19 @@ void loop() {
   if (deviceConnected) {
     uint8_t bufferLaporan[9] = {0};
 
-    // 1. PEMBACAAN POTENSIO SETIR (SUPER LINIER TANPA RESET X0)
+    // 1. PEMBACAAN POTENSIO SETIR
     int rawPot = readADCFiltered(POT_STEER_PIN);
     steerSmoothed = (alpha * rawPot) + ((1.0 - alpha) * steerSmoothed);
 
-    // Pembatasan ADC 12-bit murni
-    int potLimited = constrain((int)steerSmoothed, 10, 4085);
-    int totalStep = map(potLimited, 10, 4085, 0, 319);
+    // KALIBRASI KALKULASI LANGKAH PRESISI:
+    // Dihitung berdasarkan nilai fisik nyata potensio kamu (Tengah: 2520, Selisih 1 Putaran: 1150)
+    // Rumus ini menjamin 1 putaran fisik setir = tepat 80 langkah (1 putaran lingkaran penuh di HP)
+    float stepsFromCenter = (steerSmoothed - 2520.0) / 1150.0 * 80.0;
+    
+    // Konversi ke index tabel positif (0-319 total rentang langkah)
+    int totalStep = (int)(160.0 + stepsFromCenter);
+    totalStep = constrain(totalStep, 0, 319);
+    
     int indexPoint = totalStep % 80;
 
     float targetX = -tableX[indexPoint];
@@ -154,23 +160,23 @@ void loop() {
     // 2. PEMBACAAN 10 TOMBOL DIGITAL DIRECT GND
     uint16_t btnState = 0;
 
-    if (digitalRead(BTN_1_PIN) == LOW)   btnState |= (1 << 0);  // Tombol 1
-    if (digitalRead(BTN_2_PIN) == LOW)   btnState |= (1 << 1);  // Tombol 2
-    if (digitalRead(BTN_3_PIN) == LOW)   btnState |= (1 << 2);  // Tombol 3
-    if (digitalRead(BTN_4_PIN) == LOW)   btnState |= (1 << 3);  // Tombol 4
-    if (digitalRead(BTN_5_PIN) == LOW)   btnState |= (1 << 4);  // Tombol 5
-    if (digitalRead(BTN_6_PIN) == LOW)   btnState |= (1 << 5);  // Tombol 6
-    if (digitalRead(BTN_7_PIN) == LOW)   btnState |= (1 << 6);  // Tombol 7
-    if (digitalRead(BTN_8_PIN) == LOW)   btnState |= (1 << 7);  // Tombol 8
-    if (digitalRead(BTN_9_PIN) == LOW)   btnState |= (1 << 8);  // Tombol 9
-    if (digitalRead(BTN_10_PIN) == LOW)  btnState |= (1 << 9);  // Tombol 10
+    if (digitalRead(BTN_1_PIN) == LOW)   btnState |= (1 << 0);
+    if (digitalRead(BTN_2_PIN) == LOW)   btnState |= (1 << 1);
+    if (digitalRead(BTN_3_PIN) == LOW)   btnState |= (1 << 2);
+    if (digitalRead(BTN_4_PIN) == LOW)   btnState |= (1 << 3);
+    if (digitalRead(BTN_5_PIN) == LOW)   btnState |= (1 << 4);
+    if (digitalRead(BTN_6_PIN) == LOW)   btnState |= (1 << 5);
+    if (digitalRead(BTN_7_PIN) == LOW)   btnState |= (1 << 6);
+    if (digitalRead(BTN_8_PIN) == LOW)   btnState |= (1 << 7);
+    if (digitalRead(BTN_9_PIN) == LOW)   btnState |= (1 << 8);
+    if (digitalRead(BTN_10_PIN) == LOW)  btnState |= (1 << 9);
 
     // SUSUN BUFFER HID REPORT
     bufferLaporan[0] = btnState & 0xFF;         
     bufferLaporan[1] = (btnState >> 8) & 0xFF;  
     bufferLaporan[2] = 8; // Hat Switch Netral                      
 
-    // LANGSUNG MASUKKAN SUMBU SETIR TANPA INTERUPSI PULSE
+    // MASUKKAN HASIL KOORDINAT SETIR (TANPA PENGUNCIAAN X0)
     bufferLaporan[3] = (int8_t)outX_smoothed;   
     bufferLaporan[4] = (int8_t)outY_smoothed;   
 
