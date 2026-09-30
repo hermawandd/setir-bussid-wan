@@ -19,7 +19,7 @@
 #define BTN_9_PIN       20    // Tombol 9
 #define BTN_10_PIN      21    // Tombol 10
 
-#define DEVICE_NAME     "HF DIY"
+#define DEVICE_NAME     "SETIR BUS V2"
 
 // Filter Halus & Kalibrasi Fix (Titik Tengah 2060)
 float steerSmoothed = 2060.0; 
@@ -155,7 +155,8 @@ void loop() {
     int totalStep = (int)totalStepFloat;
     int indexPoint = totalStep % 80;
 
-    float targetX = -tableX[indexPoint];
+    // ARAH SUMBU X SUDAH DIBALIK AGAR PAS (TANPA MINUS)
+    float targetX = tableX[indexPoint];
     float targetY = tableY[indexPoint];
 
     outX_smoothed = (alphaOut * targetX) + ((1.0 - alphaOut) * outX_smoothed);
