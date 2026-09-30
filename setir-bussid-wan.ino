@@ -21,18 +21,13 @@
 
 #define DEVICE_NAME     "SETIR BUS V2"
 
-// Filter Halus Potensio & Output (TETAP SAMA SEPERTI ASLI)
+// Filter Halus & Super Responsif khusus Potensio B10K
 float steerSmoothed = 2048.0;
-float alpha = 0.05;          
+float alpha = 0.20;          // Respon cepat untuk belok tipis/milimeter
 
 float outX_smoothed = 0.0;
 float outY_smoothed = -124.0;
-float alphaOut = 0.25;       
-
-// Variabel Trigger Center Pulse
-bool hasLeftCenter = false;
-unsigned long centerPulseTimer = 0;
-bool isPulsing = false;
+float alphaOut = 0.40;       // Mengikuti gerakan jari secara instan
 
 // Buffer penampung data sebelumnya (Conditional Send)
 uint8_t lastBuffer[9] = {0};
@@ -91,11 +86,11 @@ const uint8_t reportMapGamepad[] = {
   0xC0
 };
 
-// Simple Filter Sampling khusus Potensio Setir
+// Filter Sampling Ringan (5x saja) agar respons instan & hilangkan lag mikro
 int readADCFiltered(uint8_t pin) {
   long sum = 0;
-  for (int i = 0; i < 20; i++) sum += analogRead(pin);
-  return sum / 20;
+  for (int i = 0; i < 5; i++) sum += analogRead(pin);
+  return sum / 5;
 }
 
 void setup() {
@@ -141,12 +136,13 @@ void loop() {
   if (deviceConnected) {
     uint8_t bufferLaporan[9] = {0};
 
-    // 1. PEMBACAAN POTENSIO SETIR
+    // 1. PEMBACAAN POTENSIO SETIR (SUPER LINIER TANPA RESET X0)
     int rawPot = readADCFiltered(POT_STEER_PIN);
     steerSmoothed = (alpha * rawPot) + ((1.0 - alpha) * steerSmoothed);
 
-    int potLimited = constrain((int)steerSmoothed, 50, 4000);
-    int totalStep = map(potLimited, 50, 4000, 0, 319);
+    // Pembatasan ADC 12-bit murni
+    int potLimited = constrain((int)steerSmoothed, 10, 4085);
+    int totalStep = map(potLimited, 10, 4085, 0, 319);
     int indexPoint = totalStep % 80;
 
     float targetX = -tableX[indexPoint];
@@ -155,20 +151,7 @@ void loop() {
     outX_smoothed = (alphaOut * targetX) + ((1.0 - alphaOut) * outX_smoothed);
     outY_smoothed = (alphaOut * targetY) + ((1.0 - alphaOut) * outY_smoothed);
 
-    // 2. DETEKSI LINTASAN PEMICU (CENTER PULSE)
-    int currentX = (int)outX_smoothed;
-    bool isAtCenterX = (abs(currentX) <= 2); 
-
-    if (!isAtCenterX) {
-      hasLeftCenter = true;
-    } 
-    else if (isAtCenterX && hasLeftCenter && !isPulsing) {
-      isPulsing = true;
-      centerPulseTimer = millis();
-      hasLeftCenter = false; 
-    }
-
-    // 3. PEMBACAAN 10 TOMBOL DIGITAL DIRECT GND
+    // 2. PEMBACAAN 10 TOMBOL DIGITAL DIRECT GND
     uint16_t btnState = 0;
 
     if (digitalRead(BTN_1_PIN) == LOW)   btnState |= (1 << 0);  // Tombol 1
@@ -187,25 +170,16 @@ void loop() {
     bufferLaporan[1] = (btnState >> 8) & 0xFF;  
     bufferLaporan[2] = 8; // Hat Switch Netral                      
 
-    // 4. PENANGANAN REFRESH PULSE
-    if (isPulsing) {
-      bufferLaporan[3] = 0; 
-      bufferLaporan[4] = 0; 
-      
-      if (millis() - centerPulseTimer >= 25) {
-        isPulsing = false; 
-      }
-    } else {
-      bufferLaporan[3] = (int8_t)outX_smoothed;   
-      bufferLaporan[4] = (int8_t)outY_smoothed;   
-    }
+    // LANGSUNG MASUKKAN SUMBU SETIR TANPA INTERUPSI PULSE
+    bufferLaporan[3] = (int8_t)outX_smoothed;   
+    bufferLaporan[4] = (int8_t)outY_smoothed;   
 
     bufferLaporan[5] = 0;
     bufferLaporan[6] = 0;
     bufferLaporan[7] = 0;
     bufferLaporan[8] = 0;
 
-    // 5. CONDITIONAL SENDING
+    // 3. CONDITIONAL SENDING
     bool dataChanged = false;
     for (int i = 0; i < 9; i++) {
       if (bufferLaporan[i] != lastBuffer[i]) {
