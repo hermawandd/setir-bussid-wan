@@ -8,21 +8,21 @@
 #define POT_STEER_PIN   0     // Potensio Setir (Analog 3.3V)
 
 // TOTAL 10 TOMBOL DIGITAL DIRECT GND
-#define BTN_1_PIN       1     // Tombol 1  (Gas / R2)
-#define BTN_2_PIN       2     // Tombol 2  (Rem / L2)
-#define BTN_3_PIN       3     // Tombol 3  (Klakson)
-#define BTN_4_PIN       4     // Tombol 4  (Sein Kiri)
-#define BTN_5_PIN       5     // Tombol 5  (Sein Kanan)
-#define BTN_6_PIN       6     // Tombol 6  (Lampu Utama)
-#define BTN_7_PIN       7     // Tombol 7  (Wiper)
-#define BTN_8_PIN       10    // Tombol 8  (Handbrake)
-#define BTN_9_PIN       20    // Tombol 9  (Kamera)
-#define BTN_10_PIN      21    // Tombol 10 (Gigi / Transmisi)
+#define BTN_1_PIN       1     // Tombol 1
+#define BTN_2_PIN       2     // Tombol 2
+#define BTN_3_PIN       3     // Tombol 3
+#define BTN_4_PIN       4     // Tombol 4
+#define BTN_5_PIN       5     // Tombol 5
+#define BTN_6_PIN       6     // Tombol 6
+#define BTN_7_PIN       7     // Tombol 7
+#define BTN_8_PIN       10    // Tombol 8
+#define BTN_9_PIN       20    // Tombol 9
+#define BTN_10_PIN      21    // Tombol 10
 
-#define DEVICE_NAME     "SETIR BUS V2"
+#define DEVICE_NAME     "HF DIY"
 
-// Filter Halus & Smoothing (MURNI $100\%$ KEMBALI KE KODE AWAL KAMU)
-float steerSmoothed = 2520.0; // Inisialisasi awal ke titik tengah
+// Filter Halus & Kalibrasi Fix (Titik Tengah 2060)
+float steerSmoothed = 2060.0; 
 float alpha = 0.05;          
 
 float outX_smoothed = 0.0;
@@ -32,7 +32,7 @@ float alphaOut = 0.25;
 // Buffer penampung data sebelumnya (Conditional Send)
 uint8_t lastBuffer[9] = {0};
 
-// TABEL LOOKUP KOORDINAT LINGKARAN (80 Titik = 1 Putaran Lingkaran)
+// TABEL LOOKUP KOORDINAT LINGKARAN (80 Titik = 1 Putaran Lingkaran 360)
 const int8_t tableX[80] = {
    0, 10, 20, 30, 40, 50, 59, 67, 76, 83,
   90, 97,102,107,112,115,118,120,122,123,
@@ -62,7 +62,7 @@ bool deviceConnected = false;
 class MyServerCallbacks : public BLEServerCallbacks {
   void onConnect(BLEServer* pServer) { 
     deviceConnected = true; 
-    memset(lastBuffer, 0xFF, sizeof(lastBuffer)); // Force send laporan pertama
+    memset(lastBuffer, 0xFF, sizeof(lastBuffer));
   }
   void onDisconnect(BLEServer* pServer) {
     deviceConnected = false;
@@ -86,7 +86,7 @@ const uint8_t reportMapGamepad[] = {
   0xC0
 };
 
-// Filter Sampling 20x Murni Asli
+// Filter Sampling 20x
 int readADCFiltered(uint8_t pin) {
   long sum = 0;
   for (int i = 0; i < 20; i++) sum += analogRead(pin);
@@ -94,7 +94,6 @@ int readADCFiltered(uint8_t pin) {
 }
 
 void setup() {
-  // SET SEMUA PIN TOMBOL KE INPUT_PULLUP (DIRECT GND)
   pinMode(BTN_1_PIN, INPUT_PULLUP);
   pinMode(BTN_2_PIN, INPUT_PULLUP);
   pinMode(BTN_3_PIN, INPUT_PULLUP);
@@ -106,7 +105,6 @@ void setup() {
   pinMode(BTN_9_PIN, INPUT_PULLUP);
   pinMode(BTN_10_PIN, INPUT_PULLUP);
 
-  // Setir Potensio (3.3V Analog)
   pinMode(POT_STEER_PIN, INPUT);
   analogReadResolution(12);
 
@@ -136,19 +134,25 @@ void loop() {
   if (deviceConnected) {
     uint8_t bufferLaporan[9] = {0};
 
-    // 1. PEMBACAAN POTENSIO SETIR
+    // 1. PEMBACAAN POTENSIO SETIR (LOGIKA 1.5X FIX)
     int rawPot = readADCFiltered(POT_STEER_PIN);
     steerSmoothed = (alpha * rawPot) + ((1.0 - alpha) * steerSmoothed);
 
-    // KALIBRASI KALKULASI LANGKAH PRESISI:
-    // Dihitung berdasarkan nilai fisik nyata potensio kamu (Tengah: 2520, Selisih 1 Putaran: 1150)
-    // Rumus ini menjamin 1 putaran fisik setir = tepat 80 langkah (1 putaran lingkaran penuh di HP)
-    float stepsFromCenter = (steerSmoothed - 2520.0) / 1150.0 * 80.0;
+    float stepsFromCenter = 0.0;
+
+    if (steerSmoothed <= 2060.0) {
+      // DIPUTAR KE KIRI
+      stepsFromCenter = (steerSmoothed - 2060.0) / 1144.6 * 80.0;
+    } else {
+      // DIPUTAR KE KANAN
+      stepsFromCenter = (steerSmoothed - 2060.0) / 1172.0 * 80.0;
+    }
+
+    // Rentang Step dibatasi dari 40 (1.5x Kiri) hingga 280 (1.5x Kanan)
+    float totalStepFloat = 160.0 + stepsFromCenter;
+    totalStepFloat = constrain(totalStepFloat, 40.0, 280.0);
     
-    // Konversi ke index tabel positif (0-319 total rentang langkah)
-    int totalStep = (int)(160.0 + stepsFromCenter);
-    totalStep = constrain(totalStep, 0, 319);
-    
+    int totalStep = (int)totalStepFloat;
     int indexPoint = totalStep % 80;
 
     float targetX = -tableX[indexPoint];
@@ -157,7 +161,7 @@ void loop() {
     outX_smoothed = (alphaOut * targetX) + ((1.0 - alphaOut) * outX_smoothed);
     outY_smoothed = (alphaOut * targetY) + ((1.0 - alphaOut) * outY_smoothed);
 
-    // 2. PEMBACAAN 10 TOMBOL DIGITAL DIRECT GND
+    // 2. PEMBACAAN 10 TOMBOL DIGITAL
     uint16_t btnState = 0;
 
     if (digitalRead(BTN_1_PIN) == LOW)   btnState |= (1 << 0);
@@ -174,9 +178,8 @@ void loop() {
     // SUSUN BUFFER HID REPORT
     bufferLaporan[0] = btnState & 0xFF;         
     bufferLaporan[1] = (btnState >> 8) & 0xFF;  
-    bufferLaporan[2] = 8; // Hat Switch Netral                      
+    bufferLaporan[2] = 8;                       
 
-    // MASUKKAN HASIL KOORDINAT SETIR (TANPA PENGUNCIAAN X0)
     bufferLaporan[3] = (int8_t)outX_smoothed;   
     bufferLaporan[4] = (int8_t)outY_smoothed;   
 
