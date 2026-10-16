@@ -3,113 +3,503 @@
 #include <BLEServer.h>
 #include <BLE2902.h>
 #include <BLEHIDDevice.h>
+#include <Wire.h>
+#include <math.h>
 
-// PIN ASSIGNMENT ESP32-C3 SUPERMINI
-#define POT_STEER_PIN   0     // Potensio Setir (Analog 3.3V)
+// =====================================================
+// PINOUT ESP32-C3 SUPER MINI
+// =====================================================
 
-// TOTAL 10 TOMBOL DIGITAL DIRECT GND
-#define BTN_1_PIN       1     // Tombol 1
-#define BTN_2_PIN       2     // Tombol 2
-#define BTN_3_PIN       3     // Tombol 3
-#define BTN_4_PIN       4     // Tombol 4
-#define BTN_5_PIN       5     // Tombol 5
-#define BTN_6_PIN       6     // Tombol 6
-#define BTN_7_PIN       7     // Tombol 7
-#define BTN_8_PIN       10    // Tombol 8
-#define BTN_9_PIN       20    // Tombol 9
-#define BTN_10_PIN      21    // Tombol 10
+#define SDA_PIN  3
+#define SCL_PIN  4
 
-#define DEVICE_NAME     "SETIR BUS V2"
+#define GAS_PIN  0
+#define REM_PIN  1
+#define RESET_PIN 2
 
-// Filter Halus & Kalibrasi Fix (Titik Tengah 2060)
-float steerSmoothed = 2060.0; 
-float alpha = 0.05;          
+#define LED_PIN  8
 
-float outX_smoothed = 0.0;
-float outY_smoothed = -124.0;
-float alphaOut = 0.25;       
+// =====================================================
+// AS5600
+// =====================================================
 
-// Buffer penampung data sebelumnya (Conditional Send)
-uint8_t lastBuffer[9] = {0};
+#define AS5600_ADDR   0x36
+#define RAW_ANGLE_REG 0x0C
 
-// TABEL LOOKUP KOORDINAT LINGKARAN (80 Titik = 1 Putaran Lingkaran 360)
+// =====================================================
+// BLUETOOTH
+// =====================================================
+
+#define DEVICE_NAME         "HERMAWAN SETIR"
+#define DEVICE_MANUFACTURER "ESP32"
+
+// =====================================================
+// MODE PERMAINAN
+// =====================================================
+
+// true  = BUSSID
+// false = CARX STREET
+
+bool gameModeBussid = true;
+
+// =====================================================
+// PENGATURAN BUSSID
+// =====================================================
+
+int BUSSID_FIRST_STEP = 0;
+
+// =====================================================
+// PENGATURAN CARX
+// =====================================================
+
+int CARX_FIRST_STEP = 20;
+
+int CARX_CENTER_ZONE = 2;
+
+float CARX_ANGLE_DIVIDER = 1.0f;
+
+const long CARX_MAX_RAW_RANGE = 2048;
+
+// =====================================================
+// STEERING VARIABLE
+// =====================================================
+
+const int TOTAL_STEPS = 80;
+
+volatile int indexPoint = 0;
+
+volatile long carxRawPosition = 0;
+
+uint16_t lastRawAngle = 0;
+
+uint16_t zeroAngle = 0;
+
+bool isFirstRead = true;
+
+int16_t steeringX = 0;
+int16_t steeringY = 0;
+
+// =====================================================
+// LED STATUS
+// =====================================================
+
+bool isBlinkingMode = false;
+
+int blinkCount = 0;
+
+unsigned long lastBlinkTime = 0;
+
+bool ledState = LOW;
+
+// =====================================================
+// TABEL BUSSID ASLI
+// =====================================================
+
 const int8_t tableX[80] = {
-   0, 10, 20, 30, 40, 50, 59, 67, 76, 83,
-  90, 97,102,107,112,115,118,120,122,123,
- 124,123,122,120,118,115,112,107,102, 97,
-  90, 83, 76, 67, 59, 50, 40, 30, 20, 10,
-   0,-10,-20,-30,-40,-50,-59,-67,-76,-83,
- -90,-97,-102,-107,-112,-115,-118,-120,-122,-123,
--124,-123,-122,-120,-118,-115,-112,-107,-102,-97,
- -90,-83,-76,-67,-59,-50,-40,-30,-20,-10
+     0,  10,  20,  30,  40,  50,  59,  67,  76,  83,
+    90,  97, 102, 107, 112, 115, 118, 120, 122, 123,
+   124, 123, 122, 120, 118, 115, 112, 107, 102,  97,
+    90,  83,  76,  67,  59,  50,  40,  30,  20,  10,
+     0, -10, -20, -30, -40, -50, -59, -67, -76, -83,
+   -90, -97,-102,-107,-112,-115,-118,-120,-122,-123,
+  -124,-123,-122,-120,-118,-115,-112,-107,-102, -97,
+   -90, -83, -76, -67, -59, -50, -40, -30, -20, -10
 };
 
 const int8_t tableY[80] = {
- -124,-123,-122,-120,-118,-115,-112,-107,-102,-97,
- -90,-83,-76,-67,-59,-50,-40,-30,-20,-10,
-   0, 10, 20, 30, 40, 50, 59, 67, 76, 83,
-  90, 97,102,107,112,115,118,120,122,123,
- 124,123,122,120,118,115,112,107,102,97,
- 90,83,76,67,59,50,40,30,20,10,
-  0,-10,-20,-30,-40,-50,-59,-67,-76,-83,
- -90,-97,-102,-107,-112,-115,-118,-120,-122,-123
+  -124,-123,-122,-120,-118,-115,-112,-107,-102, -97,
+   -90, -83, -76, -67, -59, -50, -40, -30, -20, -10,
+     0,  10,  20,  30,  40,  50,  59,  67,  76,  83,
+    90,  97, 102, 107, 112, 115, 118, 120, 122, 123,
+   124, 123, 122, 120, 118, 115, 112, 107, 102,  97,
+    90,  83,  76,  67,  59,  50,  40,  30,  20,  10,
+     0, -10, -20, -30, -40, -50, -59, -67, -76, -83,
+   -90, -97,-102,-107,-112,-115,-118,-120,-122,-123
 };
 
+// =====================================================
+// BLE HID
+// =====================================================
+
 BLEHIDDevice* hid;
+
 BLECharacteristic* inputGamepad;
+
 bool deviceConnected = false;
 
+// =====================================================
+// TOMBOL GAS DAN REM
+// =====================================================
+
+bool lastGasState = HIGH;
+bool lastRemState = HIGH;
+bool lastResetState = HIGH;
+
+// =====================================================
+// BLE CALLBACK
+// =====================================================
+
 class MyServerCallbacks : public BLEServerCallbacks {
-  void onConnect(BLEServer* pServer) { 
-    deviceConnected = true; 
-    memset(lastBuffer, 0xFF, sizeof(lastBuffer));
+
+  void onConnect(BLEServer* pServer) override {
+    deviceConnected = true;
+    Serial.println("BLE CONNECTED");
   }
-  void onDisconnect(BLEServer* pServer) {
+
+  void onDisconnect(BLEServer* pServer) override {
     deviceConnected = false;
+    Serial.println("BLE DISCONNECTED");
+
+    delay(100);
     pServer->getAdvertising()->start();
   }
 };
 
+// =====================================================
+// HID REPORT DESCRIPTOR
+// 8 BUTTONS + HAT + STEERING X/Y + 2 PEDALS
+// =====================================================
+
 const uint8_t reportMapGamepad[] = {
-  0x05, 0x01, 0x09, 0x05, 0xA1, 0x01,
-  // 16 Tombol Digital (Byte 0 & Byte 1)
-  0x05, 0x09, 0x19, 0x01, 0x29, 0x10, 0x15, 0x00, 0x25, 0x01, 0x75, 0x01, 0x95, 0x10, 0x81, 0x02,
-  // Hat Switch / D-Pad Netral (Byte 2)
-  0x05, 0x01, 0x09, 0x39, 0x15, 0x00, 0x25, 0x07, 0x35, 0x00, 0x46, 0x3B, 0x01, 0x65, 0x14, 0x75, 0x04, 0x95, 0x01, 0x81, 0x02,
-  0x75, 0x04, 0x95, 0x01, 0x81, 0x03,
-  // Sumbu Setir X & Y (Byte 3 & Byte 4)
-  0x05, 0x01, 0x09, 0x30, 0x09, 0x31, 0x15, 0x81, 0x25, 0x7F, 0x75, 0x08, 0x95, 0x02, 0x81, 0x02,
-  // Sumbu Right Stick Z & Rz (Byte 5 & Byte 6)
-  0x05, 0x01, 0x09, 0x32, 0x09, 0x35, 0x15, 0x81, 0x25, 0x7F, 0x75, 0x08, 0x95, 0x02, 0x81, 0x02,
-  // Analog Triggers (Byte 7 & Byte 8)
-  0x05, 0x02, 0x09, 0xC5, 0x09, 0xC4, 0x15, 0x00, 0x25, 0xFF, 0x75, 0x08, 0x95, 0x02, 0x81, 0x02,
+
+  0x05, 0x01,
+  0x09, 0x05,
+  0xA1, 0x01,
+
+  // 8 tombol
+  0x05, 0x09,
+  0x19, 0x01,
+  0x29, 0x08,
+  0x15, 0x00,
+  0x25, 0x01,
+  0x75, 0x01,
+  0x95, 0x08,
+  0x81, 0x02,
+
+  // Hat switch
+  0x05, 0x01,
+  0x09, 0x39,
+  0x15, 0x00,
+  0x25, 0x07,
+  0x35, 0x00,
+  0x46, 0x3B, 0x01,
+  0x65, 0x14,
+  0x75, 0x04,
+  0x95, 0x01,
+  0x81, 0x02,
+
+  // Padding
+  0x75, 0x04,
+  0x95, 0x01,
+  0x81, 0x03,
+
+  // Steering X dan Y, 16-bit
+  0x05, 0x01,
+  0x09, 0x30,
+  0x09, 0x31,
+  0x16, 0x00, 0x80,
+  0x26, 0xFF, 0x7F,
+  0x75, 0x10,
+  0x95, 0x02,
+  0x81, 0x02,
+
+  // Pedal 1 dan pedal 2
+  0x05, 0x02,
+  0x09, 0xC5,
+  0x09, 0xC4,
+  0x15, 0x00,
+  0x25, 0xFF,
+  0x75, 0x08,
+  0x95, 0x02,
+  0x81, 0x02,
+
   0xC0
 };
 
-// Filter Sampling 20x
-int readADCFiltered(uint8_t pin) {
-  long sum = 0;
-  for (int i = 0; i < 20; i++) sum += analogRead(pin);
-  return sum / 20;
+// =====================================================
+// LED MODE
+// =====================================================
+
+void triggerModeBlink() {
+
+  isBlinkingMode = true;
+  blinkCount = 0;
+  lastBlinkTime = millis();
+  ledState = HIGH;
+
+  digitalWrite(LED_PIN, ledState);
 }
 
-void setup() {
-  pinMode(BTN_1_PIN, INPUT_PULLUP);
-  pinMode(BTN_2_PIN, INPUT_PULLUP);
-  pinMode(BTN_3_PIN, INPUT_PULLUP);
-  pinMode(BTN_4_PIN, INPUT_PULLUP);
-  pinMode(BTN_5_PIN, INPUT_PULLUP);
-  pinMode(BTN_6_PIN, INPUT_PULLUP);
-  pinMode(BTN_7_PIN, INPUT_PULLUP);
-  pinMode(BTN_8_PIN, INPUT_PULLUP);
-  pinMode(BTN_9_PIN, INPUT_PULLUP);
-  pinMode(BTN_10_PIN, INPUT_PULLUP);
+// =====================================================
+// BACA AS5600
+// =====================================================
 
-  pinMode(POT_STEER_PIN, INPUT);
+uint16_t readAS5600RawAngle() {
+
+  Wire.beginTransmission(AS5600_ADDR);
+  Wire.write(RAW_ANGLE_REG);
+
+  if (Wire.endTransmission(false) != 0) {
+    return lastRawAngle;
+  }
+
+  Wire.requestFrom(
+    (uint8_t)AS5600_ADDR,
+    (uint8_t)2
+  );
+
+  if (Wire.available() >= 2) {
+
+    uint16_t highByte = Wire.read();
+    uint16_t lowByte = Wire.read();
+
+    return ((highByte << 8) | lowByte) & 0x0FFF;
+  }
+
+  return lastRawAngle;
+}
+
+// =====================================================
+// RESET TITIK TENGAH SETIR
+// =====================================================
+
+void resetSteeringPosition() {
+
+  zeroAngle = readAS5600RawAngle();
+  lastRawAngle = zeroAngle;
+
+  indexPoint = 0;
+  carxRawPosition = 0;
+
+  steeringX = 0;
+  steeringY = 0;
+
+  isFirstRead = false;
+}
+
+// =====================================================
+// UPDATE AS5600
+// =====================================================
+
+bool updateAS5600Position() {
+
+  uint16_t currentRawAngle = readAS5600RawAngle();
+
+  if (isFirstRead) {
+
+    lastRawAngle = currentRawAngle;
+    zeroAngle = currentRawAngle;
+
+    isFirstRead = false;
+
+    steeringX = 0;
+    steeringY = 0;
+
+    return false;
+  }
+
+  int diff = (int)currentRawAngle - (int)lastRawAngle;
+
+  // Menangani sensor melewati 4095 ke 0 atau sebaliknya
+  if (diff > 2048) {
+    diff -= 4096;
+  }
+  else if (diff < -2048) {
+    diff += 4096;
+  }
+
+  if (diff == 0) {
+    return false;
+  }
+
+  lastRawAngle = currentRawAngle;
+
+  // ===================================================
+  // MODE BUSSID
+  // ===================================================
+
+  if (gameModeBussid) {
+
+    uint16_t correctedAngle =
+      (currentRawAngle - zeroAngle + 4096) % 4096;
+
+    float position =
+      ((float)correctedAngle * TOTAL_STEPS) / 4096.0f;
+
+    int index1 = (int)position;
+    int index2 = index1 + 1;
+
+    if (index1 >= TOTAL_STEPS) index1 = 0;
+    if (index2 >= TOTAL_STEPS) index2 = 0;
+
+    float fraction = position - floor(position);
+
+    float x = tableX[index1] +
+      (tableX[index2] - tableX[index1]) * fraction;
+
+    float y = tableY[index1] +
+      (tableY[index2] - tableY[index1]) * fraction;
+
+    if (BUSSID_FIRST_STEP != 0) {
+
+      if (x > 0) x += BUSSID_FIRST_STEP;
+      else if (x < 0) x -= BUSSID_FIRST_STEP;
+
+      if (y > 0) y += BUSSID_FIRST_STEP;
+      else if (y < 0) y -= BUSSID_FIRST_STEP;
+    }
+
+    steeringX = (int16_t)constrain(
+      round(x * 32767.0f / 124.0f),
+      -32767,
+      32767
+    );
+
+    steeringY = (int16_t)constrain(
+      round(y * 32767.0f / 124.0f),
+      -32767,
+      32767
+    );
+
+    indexPoint = (int)position;
+
+    return true;
+  }
+
+  // ===================================================
+  // MODE CARX STREET
+  // ===================================================
+
+  else {
+
+    carxRawPosition += diff;
+
+    carxRawPosition = constrain(
+      carxRawPosition,
+      -CARX_MAX_RAW_RANGE,
+      CARX_MAX_RAW_RANGE
+    );
+
+    float normalized =
+      (float)carxRawPosition / (float)CARX_MAX_RAW_RANGE;
+
+    normalized /= CARX_ANGLE_DIVIDER;
+
+    normalized = constrain(normalized, -1.0f, 1.0f);
+
+    float centerZone = (float)CARX_CENTER_ZONE / 100.0f;
+
+    if (fabs(normalized) <= centerZone) {
+      normalized = 0.0f;
+    }
+    else if (CARX_FIRST_STEP > 0) {
+
+      float firstStep = (float)CARX_FIRST_STEP / 100.0f;
+
+      if (normalized > 0.0f) normalized += firstStep;
+      else if (normalized < 0.0f) normalized -= firstStep;
+
+      normalized = constrain(normalized, -1.0f, 1.0f);
+    }
+
+    steeringX = (int16_t)round(normalized * 32767.0f);
+    steeringY = 0;
+
+    return true;
+  }
+}
+
+// =====================================================
+// LED STATUS
+// =====================================================
+
+void updateLEDStatus() {
+
+  if (isBlinkingMode) {
+
+    if (millis() - lastBlinkTime >= 100) {
+
+      lastBlinkTime = millis();
+      ledState = !ledState;
+
+      digitalWrite(LED_PIN, ledState);
+
+      blinkCount++;
+
+      if (blinkCount >= 6) {
+        isBlinkingMode = false;
+      }
+    }
+
+    return;
+  }
+
+  if (deviceConnected) {
+
+    digitalWrite(LED_PIN, HIGH);
+  }
+  else if (millis() - lastBlinkTime >= 500) {
+
+    lastBlinkTime = millis();
+    ledState = !ledState;
+
+    digitalWrite(LED_PIN, ledState);
+  }
+}
+
+// =====================================================
+// KIRIM DATA HID
+// =====================================================
+
+void kirimPaketHID() {
+
+  if (!deviceConnected) return;
+
+  uint8_t bufferLaporan[10] = {0};
+
+  bool gasState = digitalRead(GAS_PIN) == LOW;
+  bool remState = digitalRead(REM_PIN) == LOW;
+
+  // Tombol gas dan rem
+  // Pedal 1 = gas, pedal 2 = rem
+  bufferLaporan[8] = gasState ? 255 : 0;
+  bufferLaporan[9] = remState ? 255 : 0;
+
+  // Steering X dan Y
+  bufferLaporan[2] = (uint8_t)(steeringX & 0xFF);
+  bufferLaporan[3] = (uint8_t)((steeringX >> 8) & 0xFF);
+
+  bufferLaporan[4] = (uint8_t)(steeringY & 0xFF);
+  bufferLaporan[5] = (uint8_t)((steeringY >> 8) & 0xFF);
+
+  inputGamepad->setValue(bufferLaporan, sizeof(bufferLaporan));
+  inputGamepad->notify();
+}
+
+// =====================================================
+// SETUP
+// =====================================================
+
+void setup() {
+
+  Serial.begin(115200);
+
+  Wire.begin(SDA_PIN, SCL_PIN, 400000);
+
+  pinMode(LED_PIN, OUTPUT);
+  digitalWrite(LED_PIN, LOW);
+
+  pinMode(GAS_PIN, INPUT_PULLUP);
+  pinMode(REM_PIN, INPUT_PULLUP);
+  pinMode(RESET_PIN, INPUT_PULLUP);
+
   analogReadResolution(12);
 
+  // BLE
   BLEDevice::init(DEVICE_NAME);
+
   BLESecurity* pSecurity = new BLESecurity();
+
   pSecurity->setAuthenticationMode(ESP_LE_AUTH_BOND);
   pSecurity->setCapability(ESP_IO_CAP_NONE);
 
@@ -121,88 +511,64 @@ void setup() {
 
   hid->pnp(0x02, 0x05ac, 0x820a, 0x0210);
   hid->hidInfo(0x00, 0x01);
-  hid->reportMap((uint8_t*)reportMapGamepad, sizeof(reportMapGamepad));
+
+  hid->reportMap(
+    (uint8_t*)reportMapGamepad,
+    sizeof(reportMapGamepad)
+  );
+
   hid->startServices();
 
   BLEAdvertising* pAdvertising = BLEDevice::getAdvertising();
+
   pAdvertising->setAppearance(0x03C4);
   pAdvertising->addServiceUUID(hid->hidService()->getUUID());
   pAdvertising->start();
+
+  Serial.println();
+  Serial.println("================================");
+  Serial.println("       HERMAWAN SETIR");
+  Serial.println("================================");
+  Serial.println("AS5600 : SDA GPIO 3, SCL GPIO 4");
+  Serial.println("GAS    : GPIO 0");
+  Serial.println("REM    : GPIO 1");
+  Serial.println("RESET  : GPIO 2");
+  Serial.println("MODE   : BUSSID");
+  Serial.println("================================");
 }
 
+// =====================================================
+// LOOP
+// =====================================================
+
 void loop() {
-  if (deviceConnected) {
-    uint8_t bufferLaporan[9] = {0};
 
-    // 1. PEMBACAAN POTENSIO SETIR (LOGIKA 1.5X FIX)
-    int rawPot = readADCFiltered(POT_STEER_PIN);
-    steerSmoothed = (alpha * rawPot) + ((1.0 - alpha) * steerSmoothed);
+  static unsigned long lastUpdate = 0;
 
-    float stepsFromCenter = 0.0;
+  updateLEDStatus();
 
-    if (steerSmoothed <= 2060.0) {
-      // DIPUTAR KE KIRI
-      stepsFromCenter = (steerSmoothed - 2060.0) / 1144.6 * 80.0;
-    } else {
-      // DIPUTAR KE KANAN
-      stepsFromCenter = (steerSmoothed - 2060.0) / 1172.0 * 80.0;
-    }
+  // Baca sensor setir
+  bool stateChanged = updateAS5600Position();
 
-    // Rentang Step dibatasi dari 40 (1.5x Kiri) hingga 280 (1.5x Kanan)
-    float totalStepFloat = 160.0 + stepsFromCenter;
-    totalStepFloat = constrain(totalStepFloat, 40.0, 280.0);
-    
-    int totalStep = (int)totalStepFloat;
-    int indexPoint = totalStep % 80;
+  // Tombol reset titik tengah
+  bool currentResetState = digitalRead(RESET_PIN);
 
-    // ARAH SUMBU X SUDAH DIBALIK AGAR PAS (TANPA MINUS)
-    float targetX = tableX[indexPoint];
-    float targetY = tableY[indexPoint];
+  if (lastResetState == HIGH && currentResetState == LOW) {
 
-    outX_smoothed = (alphaOut * targetX) + ((1.0 - alphaOut) * outX_smoothed);
-    outY_smoothed = (alphaOut * targetY) + ((1.0 - alphaOut) * outY_smoothed);
+    resetSteeringPosition();
 
-    // 2. PEMBACAAN 10 TOMBOL DIGITAL
-    uint16_t btnState = 0;
+    Serial.println("TITIK TENGAH SETIR DIATUR ULANG");
 
-    if (digitalRead(BTN_1_PIN) == LOW)   btnState |= (1 << 0);
-    if (digitalRead(BTN_2_PIN) == LOW)   btnState |= (1 << 1);
-    if (digitalRead(BTN_3_PIN) == LOW)   btnState |= (1 << 2);
-    if (digitalRead(BTN_4_PIN) == LOW)   btnState |= (1 << 3);
-    if (digitalRead(BTN_5_PIN) == LOW)   btnState |= (1 << 4);
-    if (digitalRead(BTN_6_PIN) == LOW)   btnState |= (1 << 5);
-    if (digitalRead(BTN_7_PIN) == LOW)   btnState |= (1 << 6);
-    if (digitalRead(BTN_8_PIN) == LOW)   btnState |= (1 << 7);
-    if (digitalRead(BTN_9_PIN) == LOW)   btnState |= (1 << 8);
-    if (digitalRead(BTN_10_PIN) == LOW)  btnState |= (1 << 9);
-
-    // SUSUN BUFFER HID REPORT
-    bufferLaporan[0] = btnState & 0xFF;         
-    bufferLaporan[1] = (btnState >> 8) & 0xFF;  
-    bufferLaporan[2] = 8;                       
-
-    bufferLaporan[3] = (int8_t)outX_smoothed;   
-    bufferLaporan[4] = (int8_t)outY_smoothed;   
-
-    bufferLaporan[5] = 0;
-    bufferLaporan[6] = 0;
-    bufferLaporan[7] = 0;
-    bufferLaporan[8] = 0;
-
-    // 3. CONDITIONAL SENDING
-    bool dataChanged = false;
-    for (int i = 0; i < 9; i++) {
-      if (bufferLaporan[i] != lastBuffer[i]) {
-        dataChanged = true;
-        break;
-      }
-    }
-
-    if (dataChanged) {
-      inputGamepad->setValue(bufferLaporan, sizeof(bufferLaporan));
-      inputGamepad->notify();
-      memcpy(lastBuffer, bufferLaporan, sizeof(bufferLaporan));
-    }
+    stateChanged = true;
   }
-  delay(10);
+
+  lastResetState = currentResetState;
+
+  // Kirim laporan gamepad setiap 5 ms
+  if (stateChanged || millis() - lastUpdate >= 5) {
+
+    kirimPaketHID();
+
+    lastUpdate = millis();
+  }
 }
