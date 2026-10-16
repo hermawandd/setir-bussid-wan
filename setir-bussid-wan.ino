@@ -6,9 +6,9 @@
 #include <Wire.h>
 
 // =====================================================
-// PINOUT ESP32-C3 SUPERMINI
+// PINOUT ESP32-C3 SUPERMINI (AMAN GPIO 8 & 9)
 // =====================================================
-#define BTN_CAL_PIN     0     // Tombol Reset Titik Tengah (Direct GND)
+#define BTN_CAL_PIN     0     // Reset Titik Tengah (Direct GND)
 
 #define I2C_SDA_PIN     1     // AS5600 SDA
 #define I2C_SCL_PIN     2     // AS5600 SCL
@@ -26,25 +26,30 @@
 #define DEVICE_NAME     "SETIR HF"
 
 // =====================================================
-// KONFIGURASI AS5600 & LOGIKA MULTI-TURN
+// LOGIKA SETIR MENTAHAN: CONTINUOUS TRACKING & ADAPTIVE FILTER
 // =====================================================
 #define AS5600_ADDR     0x36
 
-uint16_t rawAnglePrevious = 0;
-long totalRawPulse = 0; 
-long centerOffset = 0;
+uint16_t as5600LastRaw = 0;
+int32_t as5600ContinuousRaw = 0;
+int32_t as5600CenterContinuousRaw = 0;
+bool as5600TrackingInitialized = false;
 
-float steerSmoothed = 0.0;
-float alphaSteer = 0.25; // Low-pass filter setir
+// Filter Median 3 Sampel + Adaptive Alpha (Mentok Mentahan)
+int32_t bussidSample[3] = {0, 0, 0};
+uint8_t bussidSampleIndex = 0;
+float bussidSmoothDeltaRaw = 0.0f;
+bool bussidSmoothReady = false;
 
-float outX_smoothed = 0.0;
-float outY_smoothed = -124.0;
-float alphaOut = 0.35;   // Low-pass filter output
+const float BUSSID_FAST_INPUT_THRESHOLD = 24.0f;
+const float BUSSID_SMOOTH_ALPHA_FAST     = 0.92f; // Refleks cepat pas dibanting
+const float BUSSID_SMOOTH_ALPHA_MEDIUM   = 0.75f; // Pergerakan sedang
+const float BUSSID_SMOOTH_ALPHA_SLOW     = 0.55f; // Sangat halus pas pelan
 
 uint8_t lastBuffer[9] = {0};
 
 // TABEL LOOKUP KOORDINAT LINGKARAN (80 Titik)
-const float tableX[80] = {
+const int8_t tableX[80] = {
    0, 10, 20, 30, 40, 50, 59, 67, 76, 83,
   90, 97,102,107,112,115,118,120,122,123,
  124,123,122,120,118,115,112,107,102, 97,
@@ -55,7 +60,7 @@ const float tableX[80] = {
  -90,-83,-76,-67,-59,-50,-40,-30,-20,-10
 };
 
-const float tableY[80] = {
+const int8_t tableY[80] = {
  -124,-123,-122,-120,-118,-115,-112,-107,-102,-97,
  -90,-83,-76,-67,-59,-50,-40,-30,-20,-10,
    0, 10, 20, 30, 40, 50, 59, 67, 76, 83,
@@ -93,52 +98,39 @@ const uint8_t reportMapGamepad[] = {
   0xC0
 };
 
-// =====================================================
-// BACA ANGLE AS5600 OVERSAMPLING 4X
-// =====================================================
+// BACA ANGLE RAW AS5600
 uint16_t readAS5600Raw() {
-  long sum = 0;
-  for (int i = 0; i < 4; i++) {
-    Wire.beginTransmission(AS5600_ADDR);
-    Wire.write(0x0C);
-    Wire.endTransmission(false);
-    Wire.requestFrom(AS5600_ADDR, 2);
+  Wire.beginTransmission(AS5600_ADDR);
+  Wire.write(0x0C);
+  if (Wire.endTransmission(false) != 0) return as5600LastRaw;
+  if (Wire.requestFrom((uint8_t)AS5600_ADDR, (uint8_t)2) != 2) return as5600LastRaw;
+  
+  uint16_t highByte = Wire.read();
+  uint16_t lowByte  = Wire.read();
+  return ((highByte << 8) | lowByte) & 0x0FFF;
+}
 
-    if (Wire.available() >= 2) {
-      uint16_t highByte = Wire.read();
-      uint16_t lowByte  = Wire.read();
-      sum += ((highByte << 8) | lowByte) & 0x0FFF;
+// LOGIKA CONTINUOUS TRACKING DARI MENTAHAN
+void updateAS5600Continuous() {
+  uint16_t raw = readAS5600Raw();
+
+  if (!as5600TrackingInitialized) {
+    as5600LastRaw = raw;
+    as5600ContinuousRaw = raw;
+    as5600CenterContinuousRaw = raw;
+    as5600TrackingInitialized = true;
+  } else {
+    int32_t sampleDelta = (int32_t)raw - (int32_t)as5600LastRaw;
+    if (sampleDelta > 2047) sampleDelta -= 4096;
+    if (sampleDelta < -2048) sampleDelta += 4096;
+
+    if (abs(sampleDelta) <= 1024) {
+      as5600ContinuousRaw += sampleDelta;
+      as5600LastRaw = raw;
     } else {
-      sum += rawAnglePrevious;
+      as5600LastRaw = raw;
     }
   }
-  return (uint16_t)(sum / 4);
-}
-
-void updateAS5600MultiTurn() {
-  uint16_t currentRaw = readAS5600Raw();
-  int delta = (int)currentRaw - (int)rawAnglePrevious;
-
-  if (delta < -2048) delta += 4096;
-  else if (delta > 2048) delta -= 4096;
-
-  totalRawPulse += delta;
-  rawAnglePrevious = currentRaw;
-}
-
-// =====================================================
-// INTERPOLASI DESIMAL (FLOAT LERP) UNTUK KEHALUSAN 100%
-// =====================================================
-void getSmoothTableXY(float stepVal, float &outX, float &outY) {
-  float wrappedStep = fmod(stepVal, 80.0f);
-  if (wrappedStep < 0) wrappedStep += 80.0f;
-
-  int idx1 = (int)wrappedStep;
-  int idx2 = (idx1 + 1) % 80;
-  float fraction = wrappedStep - idx1;
-
-  outX = tableX[idx1] + fraction * (tableX[idx2] - tableX[idx1]);
-  outY = tableY[idx1] + fraction * (tableY[idx2] - tableY[idx1]);
 }
 
 void setup() {
@@ -156,7 +148,7 @@ void setup() {
   pinMode(PEDAL_GAS_PIN, INPUT_PULLUP);
   pinMode(PEDAL_REM_PIN, INPUT_PULLUP);
 
-  rawAnglePrevious = readAS5600Raw();
+  as5600LastRaw = readAS5600Raw();
 
   BLEDevice::init(DEVICE_NAME);
   BLESecurity* pSecurity = new BLESecurity();
@@ -181,35 +173,64 @@ void setup() {
 }
 
 void loop() {
-  updateAS5600MultiTurn();
+  updateAS5600Continuous();
 
-  // TOMBOL RESET TITIK TENGAH (GPIO 0)
+  // RESET TITIK TENGAH (RESET TO 0)
   if (digitalRead(BTN_CAL_PIN) == LOW) {
-    centerOffset = totalRawPulse; 
+    as5600CenterContinuousRaw = as5600ContinuousRaw;
+    bussidSmoothReady = false;
   }
 
   if (deviceConnected) {
     uint8_t bufferLaporan[9] = {0};
 
-    // 1. PEMROSESAN SETIR DENGAN SKALA 1.5X PAS (120 TITIK TABEL)
-    long relativePulse = totalRawPulse - centerOffset;
-    steerSmoothed = (alphaSteer * (float)relativePulse) + ((1.0f - alphaSteer) * steerSmoothed);
+    // 1. FILTER MEDIAN 3 SAMPEL DARI MENTAHAN
+    int32_t target = as5600ContinuousRaw - as5600CenterContinuousRaw;
 
-    // 6144 pulsa = 1.5 putaran magnet -> dikonversi ke 120 titik (1.5x putaran lingkaran joystick)
-    float stepsFromCenter = (steerSmoothed / 6144.0f) * 120.0f;
+    bussidSample[bussidSampleIndex] = target;
+    bussidSampleIndex = (bussidSampleIndex + 1) % 3;
+
+    int32_t a = bussidSample[0];
+    int32_t b = bussidSample[1];
+    int32_t c = bussidSample[2];
+    int32_t medianTarget = a + b + c - max(a, max(b, c)) - min(a, min(b, c));
+
+    // 2. FILTER ALPHA ADAPTIF DARI MENTAHAN
+    if (!bussidSmoothReady) {
+      bussidSmoothDeltaRaw = (float)medianTarget;
+      bussidSmoothReady = true;
+    } else {
+      float diff = (float)medianTarget - bussidSmoothDeltaRaw;
+      float absDiff = fabsf(diff);
+      float alpha;
+
+      if (absDiff > BUSSID_FAST_INPUT_THRESHOLD) alpha = BUSSID_SMOOTH_ALPHA_FAST;
+      else if (absDiff > 8.0f) alpha = BUSSID_SMOOTH_ALPHA_MEDIUM;
+      else alpha = BUSSID_SMOOTH_ALPHA_SLOW;
+
+      bussidSmoothDeltaRaw += diff * alpha;
+      if (absDiff <= 0.35f) bussidSmoothDeltaRaw = (float)medianTarget;
+    }
+
+    // 3. SKALA 1.5X PUTARAN (6144 PULSA) DENGAN PEMBATAS CONSTRAIN
+    float stepsFromCenter = (bussidSmoothDeltaRaw / 6144.0f) * 120.0f;
     float totalStepFloat = 160.0f + stepsFromCenter;
+    totalStepFloat = constrain(totalStepFloat, 40.0f, 280.0f); // Mentok 1.5x putaran
 
-    // Pembatas Rentang Mentok Kiri & Kanan (40 = Mentok Kiri 1.5x, 280 = Mentok Kanan 1.5x)
-    totalStepFloat = constrain(totalStepFloat, 40.0f, 280.0f); 
+    // 4. INTERPOLASI PECAHAN LINGKARAN DARI MENTAHAN
+    int base = (int)totalStepFloat;
+    int i0 = base % 80;
+    if (i0 < 0) i0 += 80;
+    int i1 = (i0 + 1) % 80;
+    float frac = totalStepFloat - (float)base;
 
-    // Hitung koordinat X dan Y menggunakan interpolasi float LERP
-    float targetX, targetY;
-    getSmoothTableXY(totalStepFloat, targetX, targetY);
+    int x = (int)((float)tableX[i0] + ((float)tableX[i1] - (float)tableX[i0]) * frac + 0.5f);
+    int y = (int)((float)tableY[i0] + ((float)tableY[i1] - (float)tableY[i0]) * frac + 0.5f);
 
-    outX_smoothed = (alphaOut * targetX) + ((1.0f - alphaOut) * outX_smoothed);
-    outY_smoothed = (alphaOut * targetY) + ((1.0f - alphaOut) * outY_smoothed);
+    x = constrain(x, -124, 124);
+    y = constrain(y, -124, 124);
 
-    // 2. TOMBOL DIGITAL DIRECT GND
+    // BACA TOMBOL DIGITAL DIRECT GND
     uint16_t btnState = 0;
     if (digitalRead(BTN_1_PIN) == LOW) btnState |= (1 << 0);
     if (digitalRead(BTN_2_PIN) == LOW) btnState |= (1 << 1);
@@ -218,17 +239,17 @@ void loop() {
     if (digitalRead(BTN_5_PIN) == LOW) btnState |= (1 << 4);
     if (digitalRead(BTN_6_PIN) == LOW) btnState |= (1 << 5);
 
-    // 3. PEDAL GAS & REM
+    // PEDAL GAS & REM
     uint8_t valGas = (digitalRead(PEDAL_GAS_PIN) == LOW) ? 255 : 0;
     uint8_t valRem = (digitalRead(PEDAL_REM_PIN) == LOW) ? 255 : 0;
 
-    // BUFFER HID REPORT
+    // SUSUN REPORT HID GAMEPAD
     bufferLaporan[0] = btnState & 0xFF;         
     bufferLaporan[1] = (btnState >> 8) & 0xFF;  
     bufferLaporan[2] = 8; // D-Pad Netral                     
 
-    bufferLaporan[3] = (int8_t)round(outX_smoothed);   
-    bufferLaporan[4] = (int8_t)round(outY_smoothed);   
+    bufferLaporan[3] = (int8_t)x;   
+    bufferLaporan[4] = (int8_t)y;   
 
     bufferLaporan[5] = 0;
     bufferLaporan[6] = 0;
