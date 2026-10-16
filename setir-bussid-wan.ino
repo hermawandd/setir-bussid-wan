@@ -6,7 +6,7 @@
 #include <Wire.h>
 
 // =====================================================
-// PINOUT ESP32-C3 SUPERMINI (BARU & AMAN DARI GPIO 8 & 9)
+// PINOUT ESP32-C3 SUPERMINI (FIX & AMAN DARI GPIO 8 & 9)
 // =====================================================
 #define BTN_CAL_PIN     0     // Tombol Reset Titik Tengah (Direct GND)
 
@@ -27,7 +27,7 @@
 #define DEVICE_NAME     "SETIR HERMAWAN"
 
 // =====================================================
-// KONFIGURASI AS5600 & LOGIKA MULTI-TURN (1.5X PUTARAN)
+// KONFIGURASI AS5600 & LOGIKA 1:1 (1.5X PUTARAN KIRI & KANAN)
 // =====================================================
 #define AS5600_ADDR     0x36
 
@@ -36,11 +36,11 @@ long totalRawPulse = 0;
 long centerOffset = 0;
 
 float steerSmoothed = 0.0;
-float alphaSteer = 0.15; // Low-pass filter setir
+float alphaSteer = 0.20; // Filtering kehalusan setir
 
 float outX_smoothed = 0.0;
 float outY_smoothed = -124.0;
-float alphaOut = 0.25;
+float alphaOut = 0.30;   // Filtering koordinat output
 
 uint8_t lastBuffer[9] = {0};
 
@@ -87,16 +87,16 @@ class MyServerCallbacks : public BLEServerCallbacks {
 
 const uint8_t reportMapGamepad[] = {
   0x05, 0x01, 0x09, 0x05, 0xA1, 0x01,
-  // 16 Tombol Digital
+  // 16 Tombol Digital (Byte 0 & 1)
   0x05, 0x09, 0x19, 0x01, 0x29, 0x10, 0x15, 0x00, 0x25, 0x01, 0x75, 0x01, 0x95, 0x10, 0x81, 0x02,
-  // Hat Switch / D-Pad Netral
+  // Hat Switch / D-Pad Netral (Byte 2)
   0x05, 0x01, 0x09, 0x39, 0x15, 0x00, 0x25, 0x07, 0x35, 0x00, 0x46, 0x3B, 0x01, 0x65, 0x14, 0x75, 0x04, 0x95, 0x01, 0x81, 0x02,
   0x75, 0x04, 0x95, 0x01, 0x81, 0x03,
-  // Sumbu Setir X & Y
+  // Sumbu Setir X & Y (Byte 3 & 4)
   0x05, 0x01, 0x09, 0x30, 0x09, 0x31, 0x15, 0x81, 0x25, 0x7F, 0x75, 0x08, 0x95, 0x02, 0x81, 0x02,
-  // Sumbu Right Stick Z & Rz
+  // Sumbu Right Stick Z & Rz (Byte 5 & 6)
   0x05, 0x01, 0x09, 0x32, 0x09, 0x35, 0x15, 0x81, 0x25, 0x7F, 0x75, 0x08, 0x95, 0x02, 0x81, 0x02,
-  // Analog Triggers (Pedal Rem L2 & Gas R2)
+  // Analog Triggers / Gas & Rem (Byte 7 & 8)
   0x05, 0x02, 0x09, 0xC5, 0x09, 0xC4, 0x15, 0x00, 0x25, 0xFF, 0x75, 0x08, 0x95, 0x02, 0x81, 0x02,
   0xC0
 };
@@ -134,10 +134,10 @@ void updateAS5600MultiTurn() {
 // SETUP
 // =====================================================
 void setup() {
-  // INISIALISASI I2C DENGAN PIN CUSTOM (SDA: GPIO1, SCL: GPIO2)
+  // Inisialisasi I2C Fast Mode 400kHz (GPIO 1 SDA, GPIO 2 SCL)
   Wire.begin(I2C_SDA_PIN, I2C_SCL_PIN, 400000); 
 
-  // SET INPUT_PULLUP INTERNAL UNTUK SEMUA TOMBOL DIRECT GND
+  // Inisialisasi Pin Input dengan Pull-Up Internal ESP32
   pinMode(BTN_CAL_PIN, INPUT_PULLUP);
 
   pinMode(BTN_1_PIN, INPUT_PULLUP);
@@ -183,19 +183,23 @@ void loop() {
 
   // FITUR RESET TITIK TENGAH (TEKAN TOMBOL DI GPIO 0)
   if (digitalRead(BTN_CAL_PIN) == LOW) {
-    centerOffset = totalRawPulse; 
+    centerOffset = totalRawPulse; // Set posisi saat ini jadi titik 0 lurus
   }
 
   if (deviceConnected) {
     uint8_t bufferLaporan[9] = {0};
 
-    // 1. PEMROSESAN SETIR AS5600 (1.5X PUTARAN = 3072 PULSE KE KIRI & KANAN)
+    // 1. PEMROSESAN SETIR AS5600 (1:1 DENGAN SENSOR MAGNET)
+    // 1 Putaran = 4096 Pulsa -> 1.5 Putaran = 6144 Pulsa
     long relativePulse = totalRawPulse - centerOffset;
     steerSmoothed = (alphaSteer * relativePulse) + ((1.0 - alphaSteer) * steerSmoothed);
 
-    float stepsFromCenter = (steerSmoothed / 3072.0) * 100.0;
+    // Skala 6144.0 pulsa mewakili 100 step dari titik tengah (160) ke mentok kanan/kiri
+    float stepsFromCenter = (steerSmoothed / 6144.0) * 100.0;
     float totalStepFloat = 160.0 + stepsFromCenter;
-    totalStepFloat = constrain(totalStepFloat, 60.0, 260.0); // Bounded 1.5x putaran
+
+    // Pembatas / Kunci Otomatis (60.0 = Mentok Kiri 1.5x, 260.0 = Mentok Kanan 1.5x)
+    totalStepFloat = constrain(totalStepFloat, 60.0, 260.0); 
 
     int totalStep = (int)totalStepFloat;
     int indexPoint = totalStep % 80;
@@ -233,7 +237,7 @@ void loop() {
     bufferLaporan[7] = valRem; // Pedal Rem (L2)
     bufferLaporan[8] = valGas; // Pedal Gas (R2)
 
-    // 4. CONDITIONAL SENDING
+    // 4. CONDITIONAL SENDING (HANYA KIRIM JIKA DATA BERUBAH)
     bool dataChanged = false;
     for (int i = 0; i < 9; i++) {
       if (bufferLaporan[i] != lastBuffer[i]) {
